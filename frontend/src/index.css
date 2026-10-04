@@ -1,0 +1,664 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-slate-100;
+}
+
+/* Native form controls (<select>, <input type="date">, checkboxes, the date-picker popup,
+ * scrollbars) aren't plain elements with a background utility class — their chrome is drawn by
+ * the browser itself, and the browser decides light-vs-dark for that chrome from the CSS
+ * `color-scheme` property, not from our `.dark` class. Every text/date input and <select> in
+ * this app shares one className with no explicit bg/text color (relying on the browser
+ * default), so without this line they stayed rendered light — a white box sitting on a dark
+ * card — no matter how dark the rest of the page went. */
+.dark {
+  color-scheme: dark;
+}
+
+/* Light mode, retouched one notch darker the same way dark mode is a full override sheet: a
+ * plain (non-`.dark`-scoped) rule per utility class, not a `dark:`-style variant added to every
+ * component. Higher-specificity `.dark X` rules below still win when `.dark` is present, so
+ * this only ever affects the light-mode render — pure white read as too stark, so every step
+ * on the white/light-grey scale shifts down one Tailwind slate stop, borders included so they
+ * stay visible against their now-darker surfaces. */
+.bg-white {
+  background-color: #f8fafc; /* slate-50 */
+}
+.bg-slate-50 {
+  background-color: #f1f5f9; /* slate-100 */
+}
+.hover\:bg-slate-50:hover {
+  background-color: #f1f5f9; /* slate-100 */
+}
+.bg-slate-100 {
+  background-color: #e2e8f0; /* slate-200 */
+}
+.hover\:bg-slate-100:hover {
+  background-color: #e2e8f0; /* slate-200 */
+}
+.hover\:bg-slate-200:hover {
+  background-color: #cbd5e1; /* slate-300 */
+}
+.border-slate-50 {
+  border-color: #f1f5f9; /* slate-100 */
+}
+.border-slate-100 {
+  border-color: #e2e8f0; /* slate-200 */
+}
+.border-slate-200 {
+  border-color: #cbd5e1; /* slate-300 */
+}
+
+/* Same one-notch-darker treatment, applied to muted/secondary text -- slate-400/500/600 read
+ * too washed-out at their raw Tailwind value against this app's lightened backgrounds above.
+ * slate-700/900 are left alone: already dark enough to read fine as-is. */
+.text-slate-400 {
+  color: #64748b; /* slate-500 */
+}
+.text-slate-500 {
+  color: #475569; /* slate-600 */
+}
+.text-slate-600 {
+  color: #334155; /* slate-700 */
+}
+
+/* Dark mode, applied as a set of overrides keyed to the exact utility classes this app already
+ * uses, rather than a `dark:` variant added next to every one of them across ~25 component
+ * files. A `.dark ancestor + class` selector always beats the bare utility on specificity
+ * regardless of stylesheet order, so this works as a drop-in layer with zero changes to JSX —
+ * and it sidesteps a real bug the per-component approach kept hitting: a blind `text-slate-900`
+ * replacement also matches inside `hover:text-slate-900` (the character before "text" is just a
+ * `:`, which is still a word boundary), silently turning a hover-only style into an
+ * always-applied one. Writing out each compiled selector by hand (colons escaped) avoids that
+ * class of mistake entirely.
+ *
+ * Plain hex values rather than `@apply` — Tailwind refuses to `@apply` a utility inside any
+ * selector that itself contains a literal utility class name (it flags `.dark .bg-slate-100 {
+ * @apply bg-slate-700; }` as a circular dependency even though the two utilities differ), which
+ * is exactly the shape every rule here has. Values are copied from Tailwind's slate/red/emerald
+ * scale. Slate 800/900 stand in for "anthracite" — dark, but not black.
+ * Add a line here, not a `dark:` class in a component, when a new utility class needs one. */
+.dark .bg-white {
+  background-color: #1e293b; /* slate-800 */
+}
+.dark .bg-slate-50 {
+  background-color: #334155; /* slate-700 */
+}
+.dark .hover\:bg-slate-50:hover {
+  background-color: #334155; /* slate-700 */
+}
+.dark .bg-slate-100 {
+  background-color: #334155; /* slate-700 */
+}
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155; /* slate-700 */
+}
+.dark .hover\:bg-slate-200:hover {
+  background-color: #334155; /* slate-700 */
+}
+/* The primary-button/active-pill pattern (`bg-slate-900 text-white hover:bg-slate-800`) inverts
+ * to a light chip rather than going darker still — there's nowhere darker than the page to go. */
+.dark .bg-slate-900 {
+  background-color: #f1f5f9; /* slate-100 */
+}
+.dark .bg-slate-900.text-white {
+  color: #0f172a; /* slate-900 */
+}
+.dark .hover\:bg-slate-800:hover {
+  background-color: #cbd5e1; /* slate-300 */
+}
+
+.dark .border-slate-200 {
+  border-color: #334155; /* slate-700 */
+}
+.dark .border-slate-100 {
+  border-color: #1e293b; /* slate-800 */
+}
+.dark .border-slate-50 {
+  border-color: #1e293b; /* slate-800 */
+}
+.dark .border-slate-300 {
+  border-color: #475569; /* slate-600 */
+}
+
+.dark .text-slate-900 {
+  color: #f8fafc; /* slate-50 */
+}
+.dark .text-slate-700 {
+  color: #e2e8f0; /* slate-200 */
+}
+.dark .text-slate-600 {
+  color: #cbd5e1; /* slate-300 */
+}
+.dark .text-slate-500 {
+  color: #cbd5e1; /* slate-300 */
+}
+.dark .text-slate-400 {
+  color: #94a3b8; /* slate-400 */
+}
+.dark .text-slate-300 {
+  color: #64748b; /* slate-500 */
+}
+.dark .hover\:text-slate-900:hover {
+  color: #f8fafc; /* slate-50 */
+}
+.dark .hover\:text-slate-700:hover {
+  color: #e2e8f0; /* slate-200 */
+}
+.dark .hover\:text-slate-600:hover {
+  color: #cbd5e1; /* slate-300 */
+}
+.dark .hover\:text-slate-500:hover {
+  color: #cbd5e1; /* slate-300 */
+}
+.dark .group:hover .group-hover\:text-slate-500 {
+  color: #cbd5e1; /* slate-300 */
+}
+.dark .disabled\:text-slate-300:disabled {
+  color: #64748b; /* slate-500 */
+}
+
+/* Status colours (P&L, expense/income badges, error boxes) — same hue, lightened enough to
+ * read at normal weight against an anthracite surface instead of the muddy look a straight
+ * dark-on-dark 600/700 shade would give. */
+.dark .text-red-500 {
+  color: #f87171; /* red-400 */
+}
+.dark .text-red-600 {
+  color: #f87171; /* red-400 */
+}
+.dark .text-red-700 {
+  color: #fca5a5; /* red-300 */
+}
+.dark .hover\:text-red-700:hover {
+  color: #fca5a5; /* red-300 */
+}
+.dark .text-emerald-600 {
+  color: #34d399; /* emerald-400 */
+}
+.dark .text-emerald-700 {
+  color: #6ee7b7; /* emerald-300 */
+}
+.dark .bg-red-50 {
+  background-color: #450a0a; /* red-950 */
+}
+.dark .border-red-200 {
+  border-color: #7f1d1d; /* red-900 */
+}
+.dark .bg-red-500 {
+  background-color: #f87171; /* red-400 */
+}
+.dark .bg-emerald-50 {
+  background-color: #022c22; /* emerald-950 */
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Per-module accent -- each module carries its brand colour from the logo kit in
+ * frontend/design/ (gainr indigo, gripr gold, listr terracotta, gardnr green). Scoped under a
+ * `.module-<key>` class App.tsx puts on the root wrapper -- the exact same "override sheet
+ * keyed to an ancestor class" technique as dark mode above, not a new mechanism.
+ *
+ * What carries the colour: the header bar and page canvas (a light tint of the brand hue), the
+ * active tab/nav item (`.nav-active`, a brand-tinted container with dark brand text -- white on
+ * gold or terracotta wouldn't be legible), and the logo + wordmark in the module switcher.
+ * What deliberately doesn't: buttons and every P&L/category colour stay exactly as they are.
+ * In light mode cards keep the literal slate ramp (near-white barely carries a hue); in dark
+ * mode each module gets its own neutral ramp at the same lightness ladder, tinted towards its
+ * brand hue, so a card never reads as a blue box on a warm or green canvas. Every tint here is
+ * a tone of the brand hue from Material's HCT colour space, not an eyeballed hex.
+ * --------------------------------------------------------------------------------------------- */
+
+/* Brand colours, for the wordmark's coloured "r" (ModuleLogo.tsx) -- the lighter variant in
+ * dark mode, as the brand kit specifies. */
+:root {
+  --brand-gainr: #3f3ac4;
+  --brand-gripr: #b7790a;
+  --brand-listr: #d4502a;
+  --brand-gardnr: #2f7d3a;
+}
+.dark {
+  --brand-gainr: #9d9af2;
+  --brand-gripr: #edb94a;
+  --brand-listr: #f08a66;
+  --brand-gardnr: #7fc486;
+}
+
+/* The active tab in the header strip and the mobile bottom nav. Slate by default (a module
+ * without its own accent), overridden per module below. */
+.nav-active {
+  background-color: #0f172a; /* slate-900 */
+  color: #ffffff;
+}
+.dark .nav-active {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.module-gainr .nav-active,
+.module-gripr .nav-active,
+.module-listr .nav-active,
+.module-gardnr .nav-active {
+  background-color: var(--nav-active-bg);
+  color: var(--nav-active-fg);
+}
+
+/* The header used to just be `bg-white` like every card -- decoupled into its own class so a
+ * module can tint the header differently from the cards sitting on the page below it. */
+.app-header {
+  background-color: #f8fafc; /* matches the light-mode bg-white retouch above */
+}
+.dark .app-header {
+  background-color: #1e293b; /* matches the dark-mode bg-white override above */
+}
+
+/* --- gripr: Material 3 roles, mapped onto the page kit -----------------------------------
+ * gripr's components are written against Material 3 tonal roles (`bg-primary-container`,
+ * `text-on-surface-variant`, ... via tailwind.config.js's `--md-*` colours). Since gripr joined
+ * the page kit (below), those roles no longer carry their own palette: each points at the kit
+ * token playing the same part -- surface -> the white card, surface-container-low -> the warm
+ * canvas, primary -> gripr's gold, outline-variant -> the hairline border -- so gripr's own
+ * components and the kit's pieces wear one palette, in both themes (the kit's tokens switch
+ * under `.dark`, and these follow). Tertiary (green, income) and error (red, expense) keep
+ * their own values: they carry meaning, not branding. Each token has an `-rgb` twin so
+ * Tailwind's opacity modifiers (`hover:bg-on-surface/5`) work. */
+.module-gripr {
+  --md-primary-rgb: var(--ui-brand-rgb);
+  --md-primary: rgb(var(--ui-brand-rgb));
+  --md-on-primary-rgb: 255 255 255;
+  --md-on-primary: #ffffff;
+  --md-primary-container-rgb: var(--ui-brand-soft-rgb);
+  --md-primary-container: rgb(var(--ui-brand-soft-rgb));
+  --md-on-primary-container-rgb: var(--ui-brand-strong-rgb);
+  --md-on-primary-container: rgb(var(--ui-brand-strong-rgb));
+  --md-secondary-rgb: var(--ui-ink-soft-rgb);
+  --md-secondary: rgb(var(--ui-ink-soft-rgb));
+  --md-on-secondary-rgb: 255 255 255;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container-rgb: var(--ui-brand-soft-rgb);
+  --md-secondary-container: rgb(var(--ui-brand-soft-rgb));
+  --md-on-secondary-container-rgb: var(--ui-brand-strong-rgb);
+  --md-on-secondary-container: rgb(var(--ui-brand-strong-rgb));
+  --md-surface-rgb: var(--ui-surface-rgb);
+  --md-surface: rgb(var(--ui-surface-rgb));
+  --md-on-surface-rgb: var(--ui-ink-rgb);
+  --md-on-surface: rgb(var(--ui-ink-rgb));
+  --md-surface-variant-rgb: var(--ui-tile-rgb);
+  --md-surface-variant: rgb(var(--ui-tile-rgb));
+  --md-on-surface-variant-rgb: var(--ui-muted-rgb);
+  --md-on-surface-variant: rgb(var(--ui-muted-rgb));
+  --md-surface-container-low-rgb: var(--ui-bg-rgb);
+  --md-surface-container-low: rgb(var(--ui-bg-rgb));
+  --md-surface-container-rgb: var(--ui-tile-rgb);
+  --md-surface-container: rgb(var(--ui-tile-rgb));
+  --md-surface-container-high-rgb: var(--ui-tile-rgb);
+  --md-surface-container-high: rgb(var(--ui-tile-rgb));
+  --md-outline-rgb: var(--ui-faint-rgb);
+  --md-outline: rgb(var(--ui-faint-rgb));
+  --md-outline-variant-rgb: var(--ui-border-rgb);
+  --md-outline-variant: rgb(var(--ui-border-rgb));
+  --md-tertiary: #1e8e3e;
+  --md-tertiary-rgb: 30 142 62;
+  --md-on-tertiary: #ffffff;
+  --md-on-tertiary-rgb: 255 255 255;
+  --md-tertiary-container: #c8f5d0;
+  --md-tertiary-container-rgb: 200 245 208;
+  --md-on-tertiary-container: #063919;
+  --md-on-tertiary-container-rgb: 6 57 25;
+  --md-error: #ba1a1a;
+  --md-error-rgb: 186 26 26;
+  --md-on-error: #ffffff;
+  --md-on-error-rgb: 255 255 255;
+  --md-error-container: #ffdad6;
+  --md-error-container-rgb: 255 218 214;
+  --md-on-error-container: #410002;
+  --md-on-error-container-rgb: 65 0 2;
+}
+.dark .module-gripr {
+  /* A filled gold button is light in dark mode; its label takes the canvas colour. */
+  --md-on-primary-rgb: var(--ui-bg-rgb);
+  --md-on-primary: rgb(var(--ui-bg-rgb));
+  --md-tertiary: #7dda92;
+  --md-tertiary-rgb: 125 218 146;
+  --md-on-tertiary: #06390f;
+  --md-on-tertiary-rgb: 6 57 15;
+  --md-tertiary-container: #0f4b22;
+  --md-tertiary-container-rgb: 15 75 34;
+  --md-on-tertiary-container: #c8f5d0;
+  --md-on-tertiary-container-rgb: 200 245 208;
+  --md-error: #ffb4a9;
+  --md-error-rgb: 255 180 169;
+  --md-on-error: #680003;
+  --md-on-error-rgb: 104 0 3;
+  --md-error-container: #93000a;
+  --md-error-container-rgb: 147 0 10;
+  --md-on-error-container: #ffdad6;
+  --md-on-error-container-rgb: 255 218 214;
+}
+
+/* --- gainr + gripr + gardnr + listr: the page kit (gardnr's redesign, claude.ai design "gardnr · Tuinen", Sept
+ * 2026, carried to listr, gainr and gripr) ------------------------------------------------------------------------
+ * These modules share one design language: a warm off-white canvas, white cards, hairline warm
+ * borders, Instrument Sans for text and Bricolage Grotesque (`font-display`) for headings. Every
+ * colour is a `--ui-*` token with an `-rgb` twin, so Tailwind's `ui-*` colours
+ * (tailwind.config.js) take opacity modifiers; each module sets its own brand (gardnr green,
+ * listr terracotta, gainr indigo, gripr gold) and warning colours on top of the shared neutrals. The design is light-only;
+ * the dark values are derived to keep the same roles. */
+.module-gainr,
+.module-gripr,
+.module-gardnr,
+.module-listr {
+  --ui-bg: #F6F4EF; /* page canvas */
+  --ui-bg-rgb: 246 244 239;
+  --ui-surface: #FFFFFF; /* cards, sheets, bottom bar */
+  --ui-surface-rgb: 255 255 255;
+  --ui-border: #E4E1D8; /* card and button borders */
+  --ui-border-rgb: 228 225 216;
+  --ui-ink: #1B1A1F; /* primary text */
+  --ui-ink-rgb: 27 26 31;
+  --ui-ink-soft: #56535C; /* subtitles and hints */
+  --ui-ink-soft-rgb: 86 83 92;
+  --ui-muted: #6B6872; /* secondary text, inactive nav */
+  --ui-muted-rgb: 107 104 114;
+  --ui-faint: #A8A49B; /* drag handles, placeholder-ish text */
+  --ui-faint-rgb: 168 164 155;
+  --ui-line: #CFCABC; /* inputs and dashed outlines */
+  --ui-line-rgb: 207 202 188;
+  --ui-tile: #F3F1EC; /* neutral tiles, subtle fills, disabled buttons */
+  --ui-tile-rgb: 243 241 236;
+  --ui-disabled: #B7B3AA; /* disabled icons */
+  --ui-disabled-rgb: 183 179 170;
+  --ui-edit-bar: #1B1A1F; /* the dark edit-mode bar */
+  --ui-edit-bar-rgb: 27 26 31;
+  --ui-edit-bar-label: #BDB9C4; /* the edit bar's small caps label */
+  --ui-edit-bar-label-rgb: 189 185 196;
+  --ui-today: #8A5A00; /* due today */
+  --ui-today-rgb: 138 90 0;
+  --ui-today-soft: #FBEFD3; /* due-today backgrounds */
+  --ui-today-soft-rgb: 251 239 211;
+  --ui-today-dot: #D69A1B; /* due-today markers */
+  --ui-today-dot-rgb: 214 154 27;
+  background-color: rgb(var(--ui-bg-rgb));
+  font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --nav-active-bg: rgb(var(--ui-brand-soft-rgb));
+  --nav-active-fg: rgb(var(--ui-brand-strong-rgb));
+}
+.dark .module-gainr,
+.dark .module-gripr,
+.dark .module-gardnr,
+.dark .module-listr {
+  --ui-bg: #141512;
+  --ui-bg-rgb: 20 21 18;
+  --ui-surface: #1D1F1A;
+  --ui-surface-rgb: 29 31 26;
+  --ui-border: #33362F;
+  --ui-border-rgb: 51 54 47;
+  --ui-ink: #ECEBE6;
+  --ui-ink-rgb: 236 235 230;
+  --ui-ink-soft: #BDB9C4;
+  --ui-ink-soft-rgb: 189 185 196;
+  --ui-muted: #A09CA6;
+  --ui-muted-rgb: 160 156 166;
+  --ui-faint: #6F6C66;
+  --ui-faint-rgb: 111 108 102;
+  --ui-line: #4A4D44;
+  --ui-line-rgb: 74 77 68;
+  --ui-tile: #24261F;
+  --ui-tile-rgb: 36 38 31;
+  --ui-disabled: #5A5D55;
+  --ui-disabled-rgb: 90 93 85;
+  --ui-edit-bar: #0B0C09;
+  --ui-edit-bar-rgb: 11 12 9;
+  --ui-edit-bar-label: #8E8A94;
+  --ui-edit-bar-label-rgb: 142 138 148;
+  --ui-today: #EDB94A;
+  --ui-today-rgb: 237 185 74;
+  --ui-today-soft: #3A2E12;
+  --ui-today-soft-rgb: 58 46 18;
+  --ui-today-dot: #D69A1B;
+  --ui-today-dot-rgb: 214 154 27;
+}
+.module-gainr {
+  --ui-brand: #3F3AC4; /* brand indigo: primary buttons, active states */
+  --ui-brand-rgb: 63 58 196;
+  --ui-brand-strong: #2B2790; /* indigo text, selection outlines */
+  --ui-brand-strong-rgb: 43 39 144;
+  --ui-brand-soft: #E6E5FB; /* active nav pill, soft indigo fills */
+  --ui-brand-soft-rgb: 230 229 251;
+  --ui-late: #B3261E; /* errors, destructive */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-gainr {
+  --ui-brand: #9D9AF2;
+  --ui-brand-rgb: 157 154 242;
+  --ui-brand-strong: #C4C2F8;
+  --ui-brand-strong-rgb: 196 194 248;
+  --ui-brand-soft: #2A2950;
+  --ui-brand-soft-rgb: 42 41 80;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-gripr {
+  --ui-brand: #8F5E0A; /* brand gold, a shade deeper than the logo's #B7790A so white text on it stays legible */
+  --ui-brand-rgb: 143 94 10;
+  --ui-brand-strong: #6B4400; /* gold text, selection outlines */
+  --ui-brand-strong-rgb: 107 68 0;
+  --ui-brand-soft: #FBEBCB; /* active nav pill, soft gold fills */
+  --ui-brand-soft-rgb: 251 235 203;
+  --ui-late: #B3261E; /* errors, destructive */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-gripr {
+  --ui-brand: #EDB94A;
+  --ui-brand-rgb: 237 185 74;
+  --ui-brand-strong: #F6D58E;
+  --ui-brand-strong-rgb: 246 213 142;
+  --ui-brand-soft: #3A2E12;
+  --ui-brand-soft-rgb: 58 46 18;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-gardnr {
+  --ui-brand: #2F7D3A; /* brand green: primary buttons, icons */
+  --ui-brand-rgb: 47 125 58;
+  --ui-brand-strong: #1F5A28; /* green text, selection outlines */
+  --ui-brand-strong-rgb: 31 90 40;
+  --ui-brand-soft: #E3EFE0; /* active nav pill, 'op schema' chip */
+  --ui-brand-soft-rgb: 227 239 224;
+  --ui-late: #B4400F; /* overdue */
+  --ui-late-rgb: 180 64 15;
+  --ui-late-soft: #FBE7DC; /* overdue backgrounds */
+  --ui-late-soft-rgb: 251 231 220;
+  --ui-late-ink: #7A3310; /* text on overdue backgrounds */
+  --ui-late-ink-rgb: 122 51 16;
+  --ui-late-line: #F0C9B6; /* destructive button borders */
+  --ui-late-line-rgb: 240 201 182;
+  --ui-field: #EAE6DA; /* the map's ground */
+  --ui-field-rgb: 234 230 218;
+  --ui-field-dot: #D3CEC0; /* edit-mode grid dots */
+  --ui-field-dot-rgb: 211 206 192;
+  --ui-zone-ink: #4F4C42; /* zone labels (always on a pastel zone) */
+  --ui-zone-ink-rgb: 79 76 66;
+}
+.dark .module-gardnr {
+  --ui-brand: #7FC486;
+  --ui-brand-rgb: 127 196 134;
+  --ui-brand-strong: #A9DCAE;
+  --ui-brand-strong-rgb: 169 220 174;
+  --ui-brand-soft: #22362A;
+  --ui-brand-soft-rgb: 34 54 42;
+  --ui-late: #F08A66;
+  --ui-late-rgb: 240 138 102;
+  --ui-late-soft: #3D231C;
+  --ui-late-soft-rgb: 61 35 28;
+  --ui-late-ink: #F5BFA6;
+  --ui-late-ink-rgb: 245 191 166;
+  --ui-late-line: #6B3A28;
+  --ui-late-line-rgb: 107 58 40;
+  --ui-field: #262820;
+  --ui-field-rgb: 38 40 32;
+  --ui-field-dot: #3A3D34;
+  --ui-field-dot-rgb: 58 61 52;
+  --ui-zone-ink: #4F4C42;
+  --ui-zone-ink-rgb: 79 76 66;
+}
+.module-listr {
+  --ui-brand: #C0461F; /* brand terracotta: primary buttons, active states */
+  --ui-brand-rgb: 192 70 31;
+  --ui-brand-strong: #8F3313; /* terracotta text, selection outlines */
+  --ui-brand-strong-rgb: 143 51 19;
+  --ui-brand-soft: #FBE3D9; /* active nav pill, soft terracotta fills */
+  --ui-brand-soft-rgb: 251 227 217;
+  --ui-late: #B3261E; /* errors, expired, destructive */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-listr {
+  --ui-brand: #F08A66;
+  --ui-brand-rgb: 240 138 102;
+  --ui-brand-strong: #FFB59E;
+  --ui-brand-strong-rgb: 255 181 158;
+  --ui-brand-soft: #3D231C;
+  --ui-brand-soft-rgb: 61 35 28;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-gainr .app-header,
+.module-gripr .app-header,
+.module-gardnr .app-header,
+.module-listr .app-header {
+  background-color: rgb(var(--ui-surface-rgb));
+  border-color: rgb(var(--ui-border-rgb));
+}
+
+/* The pages built before the kit (gainr and listr; gardnr's Vandaag, Planten and plant panel) are
+ * written in Tailwind's slate classes. Rather than rewriting each, those classes are mapped onto
+ * the kit's tokens inside these modules -- the same "override sheet keyed to an ancestor
+ * class" technique as dark mode above -- so they wear the same palette, in both themes, and a
+ * slate-900 primary button becomes the module's brand colour. Corners get the kit's softer
+ * radii too. */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .bg-white { background-color: rgb(var(--ui-surface-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-50, .bg-slate-100, .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover) {
+  background-color: rgb(var(--ui-tile-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-200, .hover\:bg-slate-200:hover) { background-color: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-900, .hover\:bg-slate-900:hover) { background-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .hover\:bg-slate-800:hover { background-color: rgb(var(--ui-brand-strong-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-50, .border-slate-100, .border-slate-200) { border-color: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-300, .border-slate-400, .hover\:border-slate-300:hover, .hover\:border-slate-400:hover) {
+  border-color: rgb(var(--ui-line-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-500, .border-slate-900) { border-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.divide-slate-50, .divide-slate-100, .divide-slate-200) > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(var(--ui-border-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-900, .text-slate-800, .text-slate-700, .hover\:text-slate-900:hover, .hover\:text-slate-700:hover) {
+  color: rgb(var(--ui-ink-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-600, .hover\:text-slate-600:hover) { color: rgb(var(--ui-ink-soft-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-500, .text-slate-400, .hover\:text-slate-500:hover, .group:hover .group-hover\:text-slate-500) {
+  color: rgb(var(--ui-muted-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-300, .disabled\:text-slate-300:disabled) { color: rgb(var(--ui-faint-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-red-600, .text-red-500, .text-red-400, .hover\:text-red-600:hover, .hover\:text-red-700:hover) {
+  color: rgb(var(--ui-late-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-blue-600, .text-blue-700, .hover\:text-blue-700:hover, .hover\:text-blue-800:hover) { color: rgb(var(--ui-brand-strong-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-red-50, .hover\:bg-red-50:hover) { background-color: rgb(var(--ui-late-soft-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .ring-slate-900 { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.focus\:border-slate-500:focus, .focus\:border-slate-400:focus) { border-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.focus\:ring-slate-500:focus, .focus\:ring-slate-400:focus) { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
+/* In dark mode the brand is a light tint, so white text on a brand fill would wash out -- it
+ * takes the canvas colour instead (the same inversion the global sheet gives slate-900 buttons). */
+.dark :is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-ui-brand, .bg-slate-900).text-white { color: rgb(var(--ui-bg-rgb)); }
+/* Recharts draws its grid, axis ticks and pie-wedge gaps as SVG presentation attributes in
+ * slate hex; a CSS property outranks those, so the charts' chrome follows the kit too. Series
+ * colours are left alone -- they carry identity (utils/palette.ts), not branding. */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-cartesian-grid line { stroke: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-cartesian-axis-tick-value { fill: rgb(var(--ui-muted-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-active-dot circle { stroke: rgb(var(--ui-surface-rgb)); }
+/* A single-series bar chart in the module's brand colour (wrap it in `.kit-bars`). */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .kit-bars .recharts-bar-rectangle path { fill: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-pie-sector path { stroke: rgb(var(--ui-surface-rgb)); }
+/* Collapsible section titles (gainr's Home cards) in the display face. */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .collapsible-title {
+  font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: rgb(var(--ui-ink-rgb));
+}
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .rounded-lg { border-radius: 16px; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .rounded-md { border-radius: 12px; }
+
+/* ---------------------------------------------------------------------------------------------
+ * A table's first column pinned to the left edge on phones (`.pinned-col`), so a row's name stays
+ * visible while its numbers scroll horizontally underneath. It needs a solid fill matching the
+ * card behind it -- one `--pin-bg` per theme, the same values `.bg-white` resolves to above --
+ * and once the table is scrolled (`.pinned-col-scrolled` on the scroller) a fade on its right
+ * edge shows the columns sliding behind it. Desktop is untouched: the rules only exist below `sm`.
+ * --------------------------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  .pinned-col {
+    --pin-bg: #f8fafc;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: var(--pin-bg);
+  }
+  .dark .pinned-col {
+    --pin-bg: #1e293b;
+  }
+  /* The page kit's card colour, in both themes. */
+  .module-gainr .pinned-col,
+  .module-gripr .pinned-col,
+  .module-listr .pinned-col,
+  .module-gardnr .pinned-col {
+    --pin-bg: rgb(var(--ui-surface-rgb));
+  }
+  .pinned-col-scrolled .pinned-col::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: 1.5rem;
+    pointer-events: none;
+    background: linear-gradient(to right, var(--pin-bg), transparent);
+  }
+}

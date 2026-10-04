@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh gainr prices and benchmarks, Picnic deliveries/prices, bank transactions, and Trading 212 fills, once daily
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gainr/backend
+# The same secrets the app itself runs with (Picnic, Enable Banking, Trading 212). Optional, so a
+# box without bank or broker syncs set up still refreshes prices.
+EnvironmentFile=-/etc/gainr/env
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.refresh_prices
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.sync_picnic
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.sync_banks
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.sync_brokers

@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up gainr's portfolio.db and push it off-box
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gainr/backend
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.backup_db
+EnvironmentFile=-/etc/gainr-backup.env

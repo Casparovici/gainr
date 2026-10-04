@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Swapped for the active module's logo at runtime (App.tsx); gainr's until then. -->
+    <link rel="icon" type="image/svg+xml" href="/brand/gainr-icon-small.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/gainr-32.png" />
+    <link rel="apple-touch-icon" href="/brand/gainr-192.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gainr</title>
+    <!-- Bricolage Grotesque: the module wordmarks (components/ModuleLogo.tsx) and the page kit's
+         headings. Instrument Sans: the page kit's text (see index.css's page-kit block). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Applied before paint so the page never flashes the wrong theme. Mirrors the logic in
+      // src/hooks/useTheme.ts — keep the two in sync if the storage key or fallback ever change.
+      (function () {
+        try {
+          var stored = localStorage.getItem("pdt-theme");
+          var dark = stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

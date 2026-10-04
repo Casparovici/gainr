@@ -1,0 +1,29 @@
+# Real financial data — kept out of version control so it can't travel with the repo.
+portfolio.xlsx
+portfolio_*.xlsx
+personal_trx.csv
+backend/portfolio.db
+backend/portfolio.db.bak*
+backend/backups/
+
+# Local secrets (e.g. GAINR_PICNIC_EMAIL/PASSWORD) for backend/app/config.py's dotenv loading —
+# never real credentials in git.
+backend/.env
+
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.egg-info/
+backend/.pytest_cache/
+
+mcp-server/.venv/
+mcp-server/__pycache__/
+mcp-server/.pytest_cache/
+
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+.DS_Store
+*.log
+.coverage

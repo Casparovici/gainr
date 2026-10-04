@@ -1,0 +1,10 @@
+[Unit]
+Description=Check origin/main for gainr updates every 2 minutes
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=120
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target

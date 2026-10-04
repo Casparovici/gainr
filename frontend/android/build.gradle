@@ -1,0 +1,38 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.2'
+        classpath 'com.google.gms:google-services:4.4.2'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    configurations.all {
+        // androidx.navigation 2.5.3 (pulled in transitively by the biometric plugin)
+        // depends on the old standalone kotlin-stdlib-jdk7/jdk8 artifacts. Since Kotlin
+        // 1.8 those classes live in kotlin-stdlib itself, so both copies collide as
+        // duplicate classes at merge time. Excluding the old artifacts lets the single
+        // kotlin-stdlib (already on the classpath via Capacitor) provide them instead.
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

@@ -1,0 +1,6 @@
+[Unit]
+Description=Deploy latest gainr from origin/main
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gainr/deploy/deploy.sh

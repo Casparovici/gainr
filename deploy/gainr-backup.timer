@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the gainr database backup once a day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
