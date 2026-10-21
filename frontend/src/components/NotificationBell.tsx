@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import type { AppNotification } from "../api/types";
 import { formatRelativeTime } from "../utils/format";
 import ModalOverlay from "./ModalOverlay";
+import { t } from "../i18n";
 
 function readSeenAt(key: string): string | null {
   try {
@@ -60,7 +61,8 @@ export default function NotificationBell({
     setSeenAt(now);
   }
 
-  const label = unseen ? `Notifications — ${unseen} new` : "Notifications";
+  const label = unseen ? t("Notifications — {n} new", { n: unseen })
+ : t("Notifications");
   return (
     <>
       <button
@@ -76,18 +78,16 @@ export default function NotificationBell({
       {open && (
         <ModalOverlay onClose={close} cardClassName="flex max-h-[80vh] w-full max-w-md flex-col rounded-[28px] bg-surface shadow-xl">
           <div className="flex items-center justify-between gap-3 border-b border-outline-variant px-5 py-4">
-            <h2 className="text-lg font-medium text-on-surface">Since your last visit</h2>
-            <button type="button" onClick={close} className="text-sm font-medium text-primary hover:underline">
-              Done
-            </button>
+            <h2 className="text-lg font-medium text-on-surface">{t("Since your last visit")}</h2>
+            <button type="button" onClick={close} className="text-sm font-medium text-primary hover:underline">{t("Done")}</button>
           </div>
           <div className="overflow-y-auto px-5 py-3">
             {query.isLoading ? (
-              <p className="py-4 text-sm text-on-surface-variant">Loading…</p>
+              <p className="py-4 text-sm text-on-surface-variant">{t("Loading…")}</p>
             ) : query.isError ? (
-              <p className="py-4 text-sm text-error">Couldn't load what's new. Close this and try again.</p>
+              <p className="py-4 text-sm text-error">{t("Couldn't load what's new. Close this and try again.")}</p>
             ) : items.length === 0 ? (
-              <p className="py-4 text-sm text-on-surface-variant">Nothing new. Synced transactions, money coming back and bank problems show up here.</p>
+              <p className="py-4 text-sm text-on-surface-variant">{t("Nothing new. Synced transactions, money coming back and bank problems show up here.")}</p>
             ) : (
               <ul className="divide-y divide-outline-variant">
                 {items.map((n) => {

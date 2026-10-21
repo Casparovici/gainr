@@ -1,0 +1,10 @@
+[Unit]
+Description=Import briefr reports every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/10
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

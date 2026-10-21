@@ -4,6 +4,9 @@ import CollapsibleCard from "./CollapsibleCard";
 import type { Benchmark, Performance, PerformanceRange } from "../api/types";
 import { useTheme } from "../hooks/useTheme";
 import { formatDate, formatEur, formatPct, pnlColorClass, toNumber } from "../utils/format";
+import { QueryError } from "./ui/QueryError";
+import { headline } from "../utils/performanceHeadline";
+import { t } from "../i18n";
 
 const RANGES: PerformanceRange[] = ["1D", "1M", "YTD", "1Y", "Max"];
 
@@ -107,6 +110,8 @@ export default function PerformanceChart({
   range,
   onRangeChange,
   isLoading,
+  isError = false,
+  onRetry,
   benchmarks,
   activeBenchmarks,
   onToggleBenchmark,
@@ -116,6 +121,8 @@ export default function PerformanceChart({
   range: PerformanceRange;
   onRangeChange: (range: PerformanceRange) => void;
   isLoading: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
   benchmarks: Benchmark[];
   activeBenchmarks: string[];
   onToggleBenchmark: (key: string) => void;
@@ -132,27 +139,52 @@ export default function PerformanceChart({
   const rows = buildRows(performance, indexed);
   const activeSeries = performance?.benchmarks ?? [];
 
-  const labels: Record<string, string> = { portfolio: "Portfolio" };
+  const labels: Record<string, string> = { portfolio: t("Portfolio") };
   for (const b of benchmarks) labels[b.key] = b.label;
 
   const tickFormatter = (d: string) => formatDate(d, { month: "short", day: "numeric" });
   const yTickFormatter = (v: number) => (indexed ? `${v.toFixed(0)}%` : formatEur(v, true));
 
-  // The headline change figure rides in the card's header rather than the body, so folding
-  // the chart away still leaves the number it was illustrating on screen.
+  // The headline rides in the card's header rather than the body, so folding the chart away still
+  // leaves the number it was illustrating on screen. It is the money-weighted return (per year once
+  // the range is a year or longer, since scaling a few weeks up to a year exaggerates it); the
+  // time-weighted one sits beside it, and is what the line below plots and benchmarks compare with.
+  const lead = headline({
+    mwr: performance?.mwr_pct ?? null,
+    mwrYearly: performance?.mwr_yearly_pct ?? null,
+    twr: performance?.change_pct ?? null,
+  });
   const changeSummary =
-    performance?.change_eur !== null && performance?.change_eur !== undefined ? (
-      <span className={`text-sm tabular-nums ${pnlColorClass(performance.change_eur)}`}>
-        {formatEur(performance.change_eur)} ({formatPct(performance.change_pct)}) over {range}
+    performance?.change_eur !== null && performance?.change_eur !== undefined && lead.pct !== null ? (
+      <span className="flex flex-col items-end text-right tabular-nums">
+        <span className={`font-display text-2xl font-bold leading-none tracking-[-0.01em] ${pnlColorClass(lead.pct)}`}>
+          {lead.perYear ? t("{pct}/yr", { pct: formatPct(lead.pct) }) : formatPct(lead.pct)}
+        </span>
+        <span
+          className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ui-muted"
+          title={lead.moneyWeighted ? t("Money-weighted return (XIRR): includes the timing of your deposits") : undefined}
+        >
+          {lead.moneyWeighted ? t("money-weighted") : t("time-weighted")}
+        </span>
+        <span className="mt-0.5 text-[13px] text-ui-muted">
+          <span className={pnlColorClass(performance.change_eur)}>{formatEur(performance.change_eur)}</span> {t("over {range}", { range })}
+          {lead.moneyWeighted && performance.change_pct !== null && (
+            <> · <span title={t("Time-weighted return: leaves your deposits out, so it compares with a benchmark")}>{t("time-weighted {pct}", { pct: formatPct(performance.change_pct) })}</span></>
+          )}
+        </span>
       </span>
     ) : undefined;
 
   return (
     <CollapsibleCard
       storageKey="performance-chart"
-      title={indexed ? "Performance vs benchmarks" : "Portfolio value"}
+      cardClassName="rounded-2xl border border-ui-border bg-ui-surface"
+      title={indexed ? t("Performance vs benchmarks") : t("Portfolio value")}
       meta={changeSummary}
       onOpenChange={onOpenChange}
+      info={
+        <>{t("The big number is money-weighted (XIRR): what the portfolio returned on the money actually in it, so a deposit just before a rise lifts it and one just before a fall lowers it. Over a year or longer it's a yearly rate. The time-weighted return leaves your deposits and their timing out, so it compares fairly with a benchmark; the line below is time-weighted too, which is why it can end somewhere other than the big number.")}</>
+      }
     >
       <div className="flex justify-end">
         <div className="flex gap-1 rounded-md bg-slate-100 p-1">
@@ -171,11 +203,9 @@ export default function PerformanceChart({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-slate-400">Compare</span>
+        <span className="text-xs uppercase tracking-wide text-slate-400">{t("Compare")}</span>
         <span className="flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600">
-          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: PORTFOLIO_COLOR }} />
-          Portfolio
-        </span>
+          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: PORTFOLIO_COLOR }} />{t("Portfolio")}</span>
         {benchmarks.map((b) => {
           const on = activeBenchmarks.includes(b.key);
           return (
@@ -199,9 +229,13 @@ export default function PerformanceChart({
 
       <div className="mt-3 h-72">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>
+          <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("Loading…")}</div>
+        ) : isError ? (
+          <div className="flex h-full items-center justify-center text-sm">
+            <QueryError message={t("Couldn't load performance for this range.")} onRetry={onRetry} />
+          </div>
         ) : rows.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">No data for this range</div>
+          <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("No data for this range")}</div>
         ) : indexed ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={rows} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
@@ -288,10 +322,7 @@ export default function PerformanceChart({
       </div>
 
       {indexed && (
-        <p className="mt-2 text-xs text-slate-400">
-          Indexed to 0% at the start of the range. Benchmarks are index returns in their own currency, so they exclude
-          EUR exchange-rate effects.
-        </p>
+        <p className="mt-2 text-xs text-slate-400">{t("Indexed to 0% at the start of the range. Benchmarks are index returns in their own currency, so they exclude EUR exchange-rate effects.")}</p>
       )}
     </CollapsibleCard>
   );

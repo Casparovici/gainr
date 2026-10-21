@@ -3,22 +3,28 @@ paths:
   - "frontend/src/**/*.{ts,tsx}"
 ---
 
-# Role: Senior Frontend Engineer
-# Purpose: Interactive Investment Portfolio Dashboard UI/UX
+# Role: Frontend Engineer
+# Purpose: React dashboard UI
 
-## Primary Objectives
-- Build a responsive, highly intuitive dashboard (React / Next.js / Vue) for visualizing portfolio metrics.
-- Implement real-time or near-real-time data visualisations (charts, performance metrics, asset allocation breakdowns).
+## Stack
 
-## Technical Guidelines
-- **Tech Stack**: TypeScript, React / Next.js, Tailwind CSS, Recharts / Chart.js / Highcharts.
-- **State Management**: React Query / TanStack Query for server-state caching, optimistic updates, and automatic re-fetching.
-- **UI/UX Principles**:
-  - High data density without clutter; prioritize key financial metrics (Net Worth, PnL, Asset Allocation).
-  - Include privacy toggles (ability to blur or hide absolute financial numbers/amounts).
-  - Fast render times for large data sets (use virtualization for long transaction logs).
+- TypeScript, React 18, Vite, Tailwind, Recharts, TanStack Query. Capacitor wraps it for
+  Android, so nothing may assume a desktop browser.
+- Server calls go through the per-module clients in `src/api/` (`client.ts`, `griprClient.ts`,
+  `listrClient.ts`, `gardnrClient.ts`, `trainrClient.ts`) with their `*Types.ts`; don't call `fetch` from a
+  component. Server state lives in TanStack Query, not in `useState` copies.
+- Pages are per module under `src/pages/`, shared UI in `src/components/ui/`. Formatting of
+  money, percentages and dates goes through `src/utils/format.ts`.
 
-## Standards & Quality
-- Strict TypeScript: No `any` types. Define clear interfaces for Portfolio, Asset, Transaction, and Performance metrics.
-- Ensure all charts support multi-currency toggle and customizable date ranges (YTD, 1Y, 5Y, All).
-- Handle loading, empty, and error states gracefully across all dashboard widgets.
+## Standards
+
+- Strict TypeScript, no `any`. Types mirror the backend schemas.
+- Every widget handles loading, empty and error states.
+- Every user-visible string goes through `t()` / `tp()` from `src/i18n/` (module-level labels:
+  `msg()`, then `t()` where shown), written in the module's own language, with its translation
+  added to that module's file in `src/i18n/messages/`; `i18n.test.ts` fails otherwise. Data
+  (names, notes, server text) is never wrapped. See ADR 0049.
+- No business logic here: returns, P&L, allocation and balances come from the backend.
+- Chart ranges are `1D`, `1M`, `YTD`, `1Y`, `Max`; a position's own price chart uses `1D`, `1W`, `1M`, `YTD`, `3Y` (ADR 0053).
+- Pure helpers get Vitest tests next to them; components with logic get a Testing Library test.
+  `npm run lint` fails on any warning and `npm run build` typechecks; run both before committing.

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.models.asset import Asset
 from app.models.broker_sync import BrokerConnection
-from app.models.transaction import Transaction, TransactionType
+from app.models.transaction import TransactionType
 from app.repositories import transaction_repo
 from app.services import gainr_notification_service
 
@@ -30,13 +30,14 @@ def test_what_the_trading_212_sync_booked_is_summarised(db_session, portfolio_id
     txn(db_session, portfolio_id, TT.BUY, "t212:fill:2", asset=asset)
     txn(db_session, portfolio_id, TT.DIVIDEND, "t212:dividend:a", asset=asset)
     txn(db_session, portfolio_id, TT.DEPOSIT, "t212:week:2026-W40")
+    txn(db_session, portfolio_id, TT.INTEREST, "t212:week:2026-W41")
     txn(db_session, portfolio_id, TT.BUY, "t212:fill:old", created=NOW - timedelta(days=3), asset=asset)  # already seen
     txn(db_session, portfolio_id, TT.BUY, None, asset=asset)  # typed in by hand
 
     (item,) = gainr_notification_service.list_notifications(db_session, SINCE)
 
-    assert item.title == "4 new transactions from Trading 212"
-    assert item.detail == "2 buys and sells (1 auto-invest), 1 dividend, weekly interest and cashback"
+    assert item.title == "5 new transactions from Trading 212"
+    assert item.detail == "2 buys and sells (1 auto-invest), 1 dividend, weekly interest, weekly interest and cashback"
 
 
 def test_held_back_instruments_and_a_failing_sync_stay_listed(db_session):

@@ -1,3 +1,8 @@
+---
+paths:
+  - "frontend/src/**/*.{ts,tsx}"
+---
+
 # Role: UX Designer
 # Purpose: Usability, Clarity, and Consistency Across gainr and gripr
 
@@ -31,6 +36,9 @@
   `CollapsibleCard`'s `info` prop -- folded by default. The reader asked for this: long helper text
   under every field crowds a phone screen. Short, changing status ("last synced 3 h ago", an
   error, a live prompt like "Difference: €12 — missing transaction?") stays on screen.
+- **Settings sections start folded** (`SettingsSection`): the title is the toggle, and the row also holds the ⓘ,
+  a status and the section's actions. A section opens itself when something in it needs the reader. **Sync is an
+  icon** (`SyncButton`, spinning while it runs), never a word, and sits in the header of what it syncs.
 - **The whole-card/row click target vs. its nested controls**: when a card or row opens a detail
   view on click, its own inline actions (an inline balance edit, an Archive button) call
   `stopPropagation()` rather than moving to a separate menu — established in `AccountCard`.

@@ -8,6 +8,8 @@ from app.config import DATABASE_URL
 from app.db import Base
 
 config = context.config
+# A caller (the migration tests) can hand in its own database; otherwise the app's.
+DATABASE_URL = config.attributes.get("database_url", DATABASE_URL)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 if config.config_file_name is not None:

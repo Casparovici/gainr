@@ -1,0 +1,22 @@
+[Unit]
+Description=Refresh the live quote of every held gainr asset and its FX rate, at most once an hour
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gainr/backend
+EnvironmentFile=-/etc/gainr/env
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.refresh_quotes
+
+# Same user and sandbox as gainr.service, so files the database creates (its -wal and -shm) are
+# always the app's to open.
+User=gainr
+Group=gainr
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/gainr/backend
+CacheDirectory=gainr
+Environment=XDG_CACHE_HOME=/var/cache/gainr

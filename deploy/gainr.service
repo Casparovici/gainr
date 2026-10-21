@@ -6,10 +6,30 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/gainr/backend
+# Bank, broker and Picnic credentials (Enable Banking key path, Trading 212 key, ...).
+EnvironmentFile=-/etc/gainr/env
+# All interfaces, not only loopback: `tailscale serve` proxies to 127.0.0.1:80, but
+# http://finance.tijssen-hq.nl resolves to the box's Tailscale address and reaches port 80
+# directly (docs/adr/0008).
 ExecStart=/opt/gainr/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 80
 Restart=on-failure
 RestartSec=3
-User=root
+
+# Its own unprivileged user rather than root: the process holds bank and broker credentials and
+# answers anyone on the tailnet and LAN, so a bug in it shouldn't own the box. Port 80 needs the
+# one capability below and nothing else. One-time setup on the server: README, "Run as gainr".
+User=gainr
+Group=gainr
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# The database and its WAL files live in backend/; yfinance keeps its cache under XDG_CACHE_HOME.
+ReadWritePaths=/opt/gainr/backend
+CacheDirectory=gainr
+Environment=XDG_CACHE_HOME=/var/cache/gainr
 
 [Install]
 WantedBy=multi-user.target

@@ -61,21 +61,27 @@ describe("PeriodSwitcher", () => {
     expect(onChange).toHaveBeenCalledWith("2026-10-25");
   });
 
-  it("opens gripr's settings, period first, from the gear button", async () => {
+  it("opens gripr's settings from the gear button, every section folded until its title is tapped", async () => {
     renderSwitcher(vi.fn());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText("Settings"));
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    const period = screen.getByRole("button", { name: "Period" });
+    expect(period).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Banks" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Period start day")).not.toBeInTheDocument();
+
+    await userEvent.click(period);
     expect(await screen.findByDisplayValue("25")).toHaveAccessibleName("Period start day");
-    expect(screen.getByRole("heading", { name: "Banks" })).toBeInTheDocument();
   });
 
   it("lands on the period containing today after the start day changes", async () => {
     const onChange = vi.fn();
     renderSwitcher(onChange);
     await userEvent.click(screen.getByLabelText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Period" }));
     const input = await screen.findByDisplayValue("25");
 
     await userEvent.clear(input);

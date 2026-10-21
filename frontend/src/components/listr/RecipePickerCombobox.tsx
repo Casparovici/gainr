@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { listrApi } from "../../api/listrClient";
 import type { ListrRecipe } from "../../api/listrTypes";
+import { QueryError } from "../ui/QueryError";
+import { t } from "../../i18n";
 
 const inputClass =
   "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -12,7 +14,7 @@ const inputClass =
  * a meal always references an existing recipe (or none), so there's no inline-create path. */
 export default function RecipePickerCombobox({
   onSelect,
-  placeholder = "Recept zoeken…",
+  placeholder = t("Recept zoeken…"),
 }: {
   onSelect: (recipe: ListrRecipe) => void;
   placeholder?: string;
@@ -22,7 +24,7 @@ export default function RecipePickerCombobox({
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: recipes } = useQuery({ queryKey: ["listr-recipes"], queryFn: () => listrApi.listRecipes() });
+  const { data: recipes, isError, refetch } = useQuery({ queryKey: ["listr-recipes"], queryFn: () => listrApi.listRecipes() });
 
   useEffect(() => {
     if (!open) return;
@@ -86,10 +88,14 @@ export default function RecipePickerCombobox({
 
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-          {filtered.length === 0 && (
-            <div className="px-2 py-1.5 text-sm text-slate-400">
-              {trimmed ? "Geen recepten gevonden." : "Typ om te zoeken…"}
-            </div>
+          {isError ? (
+            <QueryError className="px-2 py-1.5 text-sm" message={t("Recepten laden mislukt.")} onRetry={() => refetch()} retryLabel={t("Opnieuw")} />
+          ) : (
+            filtered.length === 0 && (
+              <div className="px-2 py-1.5 text-sm text-slate-400">
+                {trimmed ? t("Geen recepten gevonden.") : t("Typ om te zoeken…")}
+              </div>
+            )
           )}
           {filtered.map((recipe, i) => (
             <button
@@ -102,7 +108,7 @@ export default function RecipePickerCombobox({
               }`}
             >
               <span className="text-slate-900">{recipe.title}</span>
-              {recipe.servings && <span className="text-xs text-slate-400">{recipe.servings} pers.</span>}
+              {recipe.servings && <span className="text-xs text-slate-400">{recipe.servings}{" "}{t("pers.")}</span>}
             </button>
           ))}
         </div>

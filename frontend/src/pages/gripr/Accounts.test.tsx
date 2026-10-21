@@ -9,7 +9,7 @@ import type { GriprAccount } from "../../api/griprTypes";
 import GriprAccounts from "./Accounts";
 
 vi.mock("../../api/griprClient", () => ({
-  griprApi: { listAccounts: vi.fn(), listCategories: vi.fn(), listReceivables: vi.fn(), updateAccount: vi.fn(), createAccount: vi.fn(), reorderAccounts: vi.fn() },
+  griprApi: { listAccounts: vi.fn(), listCategories: vi.fn(), listReceivables: vi.fn(), getDepreciation: vi.fn(), updateAccount: vi.fn(), createAccount: vi.fn(), reorderAccounts: vi.fn() },
 }));
 // The settings gear has its own tests (GriprSettingsButton.test.tsx) and data needs.
 vi.mock("../../components/gripr/GriprSettingsButton", () => ({ default: () => null }));
@@ -42,6 +42,7 @@ describe("GriprAccounts", () => {
     localStorage.clear();
     vi.mocked(griprApi.listCategories).mockResolvedValue([]);
     vi.mocked(griprApi.listReceivables).mockResolvedValue({ total: "0", items: [] });
+    vi.mocked(griprApi.getDepreciation).mockResolvedValue({ assets: [], funds: [] });
     vi.mocked(griprApi.listAccounts).mockResolvedValue([
       account(1, "ING", "checking", "2500.00"),
       account(2, "Onderhoud Auto", "savings", "-500.00"),

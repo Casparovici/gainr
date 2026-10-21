@@ -21,4 +21,3 @@ currencies and point-in-time FX, because a portfolio genuinely holds USD assets.
 - A foreign-currency account (a USD card, a holiday account) can't be represented correctly.
   If one is ever needed, it gets a currency again, with balances converted at the day's rate,
   the way gainr does, rather than a label that changes nothing.
-- The MCP server's account list no longer reports a currency.

@@ -14,8 +14,17 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.models.gripr_transaction import GriprTransactionType
-from app.repositories import gripr_transaction_repo, listr_item_repo, picnic_session_repo, picnic_sync_repo
+from app.models.picnic_sync import PicnicSyncSettings
+from app.repositories import (
+    gripr_account_repo,
+    gripr_category_repo,
+    gripr_transaction_repo,
+    listr_item_repo,
+    picnic_session_repo,
+    picnic_sync_repo,
+)
 from app.services import gripr_transaction_service, listr_inventory_service
+from app.services.errors import InvalidRequest
 from app.services.picnic_provider import PicnicAuthError, PicnicDelivery, PicnicDeliveryDetail, PicnicProvider, picnic_provider
 
 # How far around an order a hand-booked expense still counts as "that order": a few days before
@@ -35,6 +44,25 @@ class SyncResult:
     orders_booked: int = 0
     orders_matched: int = 0
     items_restocked: int = 0
+
+
+def update_settings(
+    db: Session, *, enabled: bool, account_id: int | None, category_id: int | None, since: date | None, today: date
+) -> PicnicSyncSettings:
+    """Switching on without an account and category still restocks Voorraad; booking into gripr
+    needs both. `since` defaults to today, so switching on never reaches back into history unless
+    the reader picks an earlier date on purpose."""
+    if account_id is not None and gripr_account_repo.get_account(db, account_id) is None:
+        raise InvalidRequest("Unknown gripr account")
+    if category_id is not None and gripr_category_repo.get_category(db, category_id) is None:
+        raise InvalidRequest("Unknown gripr category")
+    return picnic_sync_repo.update_settings(
+        db,
+        enabled=enabled,
+        gripr_account_id=account_id,
+        gripr_category_id=category_id,
+        since=since or (today if enabled else None),
+    )
 
 
 def _amounts(*cents: int) -> set[Decimal]:

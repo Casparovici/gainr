@@ -17,6 +17,7 @@ PAGE_SIZE = 100
 # Hard stop for pagination, far above any personal recipe collection -- only there so a
 # misbehaving server that keeps reporting more pages can't loop us forever.
 MAX_PAGES = 50
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
 
 class MealieError(Exception):
@@ -60,6 +61,8 @@ class MealieRecipe:
     # (title, text) per step; title is "" for an untitled step.
     instructions: list[tuple[str, str]] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
+    # Mealie's `image` field is set when the recipe has a picture; the bytes come from get_image.
+    has_image: bool = False
 
 
 def _text(value: object, limit: int) -> str:
@@ -198,4 +201,21 @@ class MealieProvider:
             ingredients=ingredients,
             instructions=instructions,
             categories=categories,
+            has_image=bool(_text(data.get("image"), 64)),
         )
+
+    def get_image(self, recipe_id: str) -> bytes | None:
+        """The recipe's picture as Mealie stores it, or None when it has none (or isn't a usable
+        image response). Only the bytes are returned; listr_recipe_service validates and re-encodes
+        them like any upload. Capped so a misbehaving server can't make us buffer something huge."""
+        try:
+            response = self._client.get(f"/media/recipes/{quote(recipe_id, safe='')}/images/original.webp")
+        except httpx.HTTPError as exc:
+            raise MealieError(f"Mealie is niet bereikbaar ({type(exc).__name__})") from exc
+        if response.status_code in (401, 403):
+            raise MealieAuthError("Mealie weigerde de API-sleutel")
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200 or not response.content or len(response.content) > MAX_IMAGE_BYTES:
+            return None
+        return response.content

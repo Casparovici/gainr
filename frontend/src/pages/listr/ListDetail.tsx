@@ -1,19 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ShoppingCart, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { listrApi } from "../../api/listrClient";
 import type { ListrItem, ListrListItem } from "../../api/listrTypes";
 import AddItemCombobox from "../../components/listr/AddItemCombobox";
-import PicnicProductPicker from "../../components/listr/PicnicProductPicker";
+import ListItemSheet from "../../components/listr/ListItemSheet";
+import StoresSheet from "../../components/listr/StoresSheet";
 import PicnicThumb from "../../components/listr/PicnicThumb";
-import { IconChevronLeft, ModuleTopRow, PageTitle, secondaryButtonClass } from "../../components/ui/kit";
+import { IconChevronLeft, ModuleTopRow, PageTitle, inputClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui/kit";
+import { useCollapsedGroups } from "../../hooks/useCollapsedGroups";
 import { usePicnicConnect } from "../../hooks/usePicnicConnect";
 import { categoryIcon } from "../../utils/categoryIcons";
-import { decimalInputToApi, formatEur, formatQuantity, toNumber } from "../../utils/format";
+import { formatEur, formatQuantity, toNumber } from "../../utils/format";
+import { t } from "../../i18n";
 
-function groupByCategory(items: ListrListItem[]): { categoryId: number; categoryName: string; items: ListrListItem[] }[] {
+/** The store picker's last option, which opens the stores sheet instead of choosing a store. */
+const MANAGE_STORES = "manage";
+
+/** The list's lines grouped by category, the groups in `categoryOrder` -- the store's aisles, then
+ * the rest (the server says which; docs/adr/0052). A category it doesn't know comes last, by name. */
+export function groupByCategory(
+  items: ListrListItem[],
+  categoryOrder: number[],
+): { categoryId: number; categoryName: string; items: ListrListItem[] }[] {
   const groups = new Map<number, { categoryId: number; categoryName: string; items: ListrListItem[] }>();
   for (const item of items) {
     if (!groups.has(item.category_id)) {
@@ -21,7 +32,11 @@ function groupByCategory(items: ListrListItem[]): { categoryId: number; category
     }
     groups.get(item.category_id)!.items.push(item);
   }
-  return [...groups.values()].sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+  const place = (id: number) => {
+    const at = categoryOrder.indexOf(id);
+    return at === -1 ? Number.MAX_SAFE_INTEGER : at;
+  };
+  return [...groups.values()].sort((a, b) => place(a.categoryId) - place(b.categoryId) || a.categoryName.localeCompare(b.categoryName));
 }
 
 export default function ListrListDetail() {
@@ -29,17 +44,28 @@ export default function ListrListDetail() {
   const listId = Number(id);
   const queryClient = useQueryClient();
   const [pushSummary, setPushSummary] = useState<string | null>(null);
+  // By id, so the open sheet follows the list as it refetches after a change.
+  const [openItemId, setOpenItemId] = useState<number | null>(null);
+  const [storesOpen, setStoresOpen] = useState(false);
+  const folded = useCollapsedGroups(`listr-collapsed-${listId}`);
 
   const { data: list, isLoading } = useQuery({
     queryKey: ["listr-list", listId],
     queryFn: () => listrApi.getList(listId),
   });
 
+  const storesQuery = useQuery({ queryKey: ["listr-stores"], queryFn: () => listrApi.listStores() });
+  const stores = storesQuery.data ?? [];
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["listr-list", listId] });
     queryClient.invalidateQueries({ queryKey: ["listr-lists"] });
   };
 
+  const storeMutation = useMutation({
+    mutationFn: (storeId: number | null) => listrApi.updateList(listId, { store_id: storeId }),
+    onSuccess: invalidate,
+  });
   const addItemMutation = useMutation({
     mutationFn: (item: ListrItem) => listrApi.addListItem(listId, { grocery_item_id: item.id }),
     onSuccess: invalidate,
@@ -68,13 +94,15 @@ export default function ListrListDetail() {
     mutationFn: () => listrApi.pushListToPicnic(listId),
     onSuccess: (result) => {
       const parts: string[] = [];
-      if (result.pushed.length) parts.push(`${result.pushed.length} toegevoegd aan je Picnic-winkelwagen`);
+      if (result.pushed.length) parts.push(t("{count} toegevoegd aan je Picnic-winkelwagen", { count: result.pushed.length }));
       if (result.unmapped_item_ids.length) {
         parts.push(
-          `${result.unmapped_item_ids.length} nog te koppelen — klik het winkelwagen-icoon naast een product hieronder`,
+          t("{count} nog te koppelen — klik het winkelwagen-icoon naast een product hieronder", {
+            count: result.unmapped_item_ids.length,
+          }),
         );
       }
-      setPushSummary(parts.length ? parts.join(" · ") : "Niets om toe te voegen.");
+      setPushSummary(parts.length ? parts.join(" · ") : t("Niets om toe te voegen."));
     },
   });
   const picnic = usePicnicConnect(() => pushToPicnicMutation.mutate());
@@ -85,10 +113,12 @@ export default function ListrListDetail() {
   }
 
   if (isLoading || !list) {
-    return <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>;
+    return <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>;
   }
 
-  const groups = groupByCategory(list.items);
+  const groups = groupByCategory(list.items, list.category_order);
+  const groupIds = groups.map((g) => g.categoryId);
+  const openItem = list.items.find((i) => i.id === openItemId) ?? null;
   // What "Push naar Picnic" would put in the cart -- one of each unchecked, priced product, the
   // same count-1 rule the push itself follows -- so this is a floor, not a quote.
   const pricedOpen = list.items.filter((i) => !i.is_checked && i.picnic_price !== null);
@@ -98,10 +128,8 @@ export default function ListrListDetail() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow
         left={
-          <Link to="/listr" aria-label="Terug naar lijsten" className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
-            <IconChevronLeft size={20} />
-            Lijsten
-          </Link>
+          <Link to="/listr" aria-label={t("Terug naar lijsten")} className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
+            <IconChevronLeft size={20} />{t("Lijsten")}</Link>
         }
       >
         {picnic.status?.configured && (
@@ -113,18 +141,18 @@ export default function ListrListDetail() {
             >
               <ShoppingCart className="h-4 w-4" strokeWidth={2} />
               {picnic.isConnecting || pushToPicnicMutation.isPending ? (
-                "Bezig…"
+                t("Bezig…")
               ) : (
                 <>
                   <span className="sm:hidden">Picnic</span>
-                  <span className="hidden sm:inline">Push naar Picnic</span>
+                  <span className="hidden sm:inline">{t("Push naar Picnic")}</span>
                 </>
               )}
             </button>
             {picnic.awaiting2FA && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-                <div className="text-sm font-medium text-slate-900">Code van Picnic invoeren</div>
-                <p className="mt-0.5 text-xs text-slate-400">Picnic heeft je zojuist een sms gestuurd.</p>
+              <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-xl border border-ui-line bg-ui-surface p-3 shadow-lg">
+                <div className="text-sm font-semibold text-ui-ink">{t("Code van Picnic invoeren")}</div>
+                <p className="mt-0.5 text-xs text-ui-muted">{t("Picnic heeft je zojuist een sms gestuurd.")}</p>
                 <input
                   autoFocus
                   inputMode="numeric"
@@ -134,25 +162,21 @@ export default function ListrListDetail() {
                     if (e.key === "Enter" && picnic.code.trim()) picnic.verify();
                   }}
                   placeholder="123456"
-                  className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  className={`${inputClass} mt-2`}
                 />
                 {picnic.verifyError && (
-                  <p className="mt-1 text-xs text-red-600">Code niet geaccepteerd, probeer opnieuw.</p>
+                  <p role="alert" className="mt-1 text-xs text-ui-late">{t("Code niet geaccepteerd, probeer opnieuw.")}</p>
                 )}
                 <div className="mt-2 flex justify-end gap-2">
                   <button
                     onClick={picnic.cancel}
-                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Annuleren
-                  </button>
+                    className={secondaryButtonClass}
+                  >{t("Annuleren")}</button>
                   <button
                     disabled={!picnic.code.trim() || picnic.isVerifying}
                     onClick={picnic.verify}
-                    className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    Bevestigen
-                  </button>
+                    className={primaryButtonClass}
+                  >{t("Bevestigen")}</button>
                 </div>
               </div>
             )}
@@ -166,9 +190,9 @@ export default function ListrListDetail() {
             size="md"
             subtitle={
               list.items.length === 0
-                ? "Nog leeg"
-                : `${list.checked_count} / ${list.items.length} afgevinkt` +
-                  (pricedOpen.length > 0 ? ` · ≈ ${formatEur(picnicEstimate)} bij Picnic` : "")
+                ? t("Nog leeg")
+                : t("{checked} / {total} afgevinkt", { checked: list.checked_count, total: list.items.length }) +
+                  (pricedOpen.length > 0 ? ` · ${t("≈ {amount} bij Picnic", { amount: formatEur(picnicEstimate) })}` : "")
             }
           >
             {list.name}
@@ -177,22 +201,42 @@ export default function ListrListDetail() {
         {list.checked_count > 0 && (
           <button onClick={() => clearCheckedMutation.mutate()} className={`${secondaryButtonClass} shrink-0`}>
             <Trash2 className="h-4 w-4" strokeWidth={2} />
-            <span className="sm:hidden">Afgevinkt ({list.checked_count})</span>
-            <span className="hidden sm:inline">Afgevinkte verwijderen ({list.checked_count})</span>
+            <span className="sm:hidden">{t("Afgevinkt ({checkedcount})", { checkedcount: list.checked_count })}</span>
+            <span className="hidden sm:inline">{t("Afgevinkte verwijderen ({checkedcount})", { checkedcount: list.checked_count })}</span>
           </button>
         )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <label htmlFor="list-store" className="shrink-0 text-sm font-semibold text-ui-ink-soft">{t("Winkel")}</label>
+        <select
+          id="list-store"
+          value={list.store_id ?? ""}
+          onChange={(e) => {
+            if (e.target.value === MANAGE_STORES) setStoresOpen(true);
+            else storeMutation.mutate(e.target.value === "" ? null : Number(e.target.value));
+          }}
+          className="h-11 min-w-0 max-w-xs flex-1 rounded-xl border border-ui-line bg-ui-surface px-3 text-base text-ui-ink"
+        >
+          <option value="">{t("Standaard volgorde")}</option>
+          {stores.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+          <option value={MANAGE_STORES}>{t("Winkels beheren…")}</option>
+        </select>
+        {storeMutation.isError && <span role="alert" className="text-sm text-ui-late">{t("Kon de winkel niet wijzigen.")}</span>}
       </div>
 
       {pushSummary && (
         <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-ui-ink-soft">
           {pushSummary}
-          <Link to="/listr/winkelwagen" className="font-semibold text-ui-brand-strong">
-            Naar winkelwagen ›
-          </Link>
+          <Link to="/listr/winkelwagen" className="font-semibold text-ui-brand-strong">{t("Naar winkelwagen ›")}</Link>
         </p>
       )}
       {(picnic.connectError || pushToPicnicMutation.isError) && !picnic.awaiting2FA && (
-        <p className="text-sm text-red-600">Verbinden met Picnic is mislukt. Probeer het later opnieuw.</p>
+        <p role="alert" className="text-sm text-ui-late">{t("Verbinden met Picnic is mislukt. Probeer het later opnieuw.")}</p>
       )}
 
       <div className="w-full max-w-sm">
@@ -200,88 +244,85 @@ export default function ListrListDetail() {
       </div>
 
       {list.items.length === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">
-          Nog geen producten op deze lijst — zoek hierboven om iets toe te voegen.
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">{t("Nog geen producten op deze lijst — zoek hierboven om iets toe te voegen.")}</div>
       ) : (
         <div className="flex flex-col gap-4">
+          {groups.length > 1 && (
+            <button
+              type="button"
+              onClick={() => folded.setAll(groupIds, !folded.allCollapsed(groupIds))}
+              className="-mb-2 flex h-9 items-center self-end rounded-lg px-2 text-sm font-semibold text-ui-brand-strong hover:bg-ui-tile"
+            >
+              {folded.allCollapsed(groupIds) ? t("Alles uitklappen") : t("Alles inklappen")}
+            </button>
+          )}
           {groups.map((group) => {
             const Icon = categoryIcon(group.categoryName);
+            const isOpen = folded.isOpen(group.categoryId);
+            const checkedCount = group.items.filter((i) => i.is_checked).length;
+            const done = checkedCount === group.items.length;
             return (
               <div key={group.categoryId} className="overflow-hidden rounded-[20px] border border-ui-border bg-ui-surface">
-                <div className="flex items-center gap-2 border-b border-ui-border px-4 py-3">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ui-brand-soft text-ui-brand-strong">
+                <button
+                  type="button"
+                  onClick={() => folded.toggle(group.categoryId)}
+                  aria-expanded={isOpen}
+                  aria-controls={`listr-group-${group.categoryId}`}
+                  className={`flex min-h-[52px] w-full items-center gap-2 px-4 py-3 text-left hover:bg-ui-tile ${isOpen ? "border-b border-ui-border" : ""}`}
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ui-brand-soft text-ui-brand-strong">
                     <Icon className="h-4 w-4" strokeWidth={2} />
                   </span>
-                  <span className="text-[15px] font-semibold text-ui-ink">{group.categoryName}</span>
-                  <span className="ml-auto text-sm text-ui-muted">
-                    {group.items.filter((i) => i.is_checked).length} / {group.items.length}
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ui-ink">{group.categoryName}</span>
+                  <span className={`flex shrink-0 items-center gap-1 text-sm tabular-nums ${done ? "text-ui-brand-strong" : "text-ui-muted"}`}>
+                    {done && <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden />}
+                    {checkedCount} / {group.items.length}
                   </span>
-                </div>
-                <ul>
+                  <ChevronDown
+                    aria-hidden
+                    className={`h-5 w-5 shrink-0 text-ui-faint transition-transform ${isOpen ? "" : "-rotate-90"}`}
+                    strokeWidth={2}
+                  />
+                </button>
+                <ul id={`listr-group-${group.categoryId}`} hidden={!isOpen}>
                   {group.items.map((item) => (
-                    <li
-                      key={item.id}
-                      // On a phone the name gets the first line to itself and the controls wrap
-                      // underneath; from sm up it's all one row.
-                      className="flex min-h-[48px] flex-wrap items-center gap-x-3 gap-y-1 border-b border-ui-border px-4 py-1.5 last:border-0"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.is_checked}
-                        onChange={(e) =>
-                          toggleCheckedMutation.mutate({ itemId: item.id, is_checked: e.target.checked })
-                        }
-                        aria-label={item.grocery_item_name}
-                        className="h-5 w-5 shrink-0 accent-ui-brand"
-                      />
-                      {item.picnic_image_url && <PicnicThumb url={item.picnic_image_url} size={36} />}
-                      <span className="flex min-w-0 flex-1 basis-[calc(100%-6rem)] flex-col sm:basis-0">
-                        <span className={`truncate text-[15px] ${item.is_checked ? "text-ui-muted line-through" : "text-ui-ink"}`}>
-                          {item.grocery_item_name}
-                        </span>
-                        {item.picnic_price !== null && (
-                          <span className="truncate text-xs text-ui-muted" title={item.picnic_product_name ?? undefined}>
-                            {formatEur(item.picnic_price)}
-                            {item.picnic_unit_quantity && ` / ${item.picnic_unit_quantity}`}
-                          </span>
-                        )}
-                      </span>
-                      <div className="ml-auto flex shrink-0 items-center gap-3">
+                    // One line per item, to tick off while shopping; how much, the Picnic product
+                    // and removing it are in the item's sheet, a tap on its amount away.
+                    <li key={item.id} className="flex items-center gap-3 border-b border-ui-border px-4 last:border-0">
+                      {/* The checkbox, the thumbnail and the name are one tap target: ticking off
+                          while shopping shouldn't need a 20 px aim. */}
+                      <label className="flex min-h-[52px] min-w-0 flex-1 cursor-pointer items-center gap-3">
                         <input
-                          inputMode="decimal"
-                          defaultValue={formatQuantity(item.quantity)}
-                          onBlur={(e) => {
-                            const parsed = decimalInputToApi(e.target.value);
-                            if (parsed !== null && Number(parsed) > 0 && parsed !== item.quantity) {
-                              updateQuantityMutation.mutate({ itemId: item.id, quantity: parsed });
-                            } else {
-                              e.target.value = formatQuantity(item.quantity);
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") e.currentTarget.blur();
-                          }}
-                          className="h-9 w-14 rounded-[10px] border border-ui-line bg-ui-surface px-2 text-right text-sm tabular-nums text-ui-ink focus:border-ui-brand focus:outline-none focus:ring-1 focus:ring-ui-brand"
+                          type="checkbox"
+                          checked={item.is_checked}
+                          onChange={(e) =>
+                            toggleCheckedMutation.mutate({ itemId: item.id, is_checked: e.target.checked })
+                          }
+                          aria-label={item.grocery_item_name}
+                          className="h-5 w-5 shrink-0 accent-ui-brand"
                         />
-                        <span className="w-12 shrink-0 text-xs text-ui-muted">{item.unit}</span>
-                        {picnic.status?.connected && (
-                          <PicnicProductPicker
-                            groceryItemId={item.grocery_item_id}
-                            itemName={item.grocery_item_name}
-                            mappedName={item.picnic_product_name}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => deleteItemMutation.mutate(item.id)}
-                          className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ui-faint hover:text-ui-late"
-                          title="Verwijderen"
-                          aria-label="Verwijderen"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                      </div>
+                        {item.picnic_image_url && <PicnicThumb url={item.picnic_image_url} size={32} />}
+                        <span className="flex min-w-0 flex-1 flex-col py-1.5">
+                          <span className={`truncate text-[15px] ${item.is_checked ? "text-ui-muted line-through" : "text-ui-ink"}`}>
+                            {item.grocery_item_name}
+                          </span>
+                          {item.picnic_price !== null && (
+                            <span className="truncate text-xs text-ui-muted" title={item.picnic_product_name ?? undefined}>
+                              {formatEur(item.picnic_price)}
+                              {item.picnic_unit_quantity && ` / ${item.picnic_unit_quantity}`}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setOpenItemId(item.id)}
+                        aria-label={t("{name}: {quantity} {unit}, aanpassen", { name: item.grocery_item_name, quantity: formatQuantity(item.quantity), unit: item.unit ?? "" })}
+                        className="-mr-2 flex h-11 shrink-0 items-center gap-1 rounded-xl px-2.5 text-sm tabular-nums text-ui-ink-soft hover:bg-ui-tile"
+                      >
+                        {formatQuantity(item.quantity)} {item.unit}
+                        <span aria-hidden className="text-ui-faint">›</span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -289,6 +330,19 @@ export default function ListrListDetail() {
             );
           })}
         </div>
+      )}
+
+      {storesOpen && <StoresSheet onClose={() => setStoresOpen(false)} />}
+
+      {openItem && (
+        <ListItemSheet
+          key={openItem.id}
+          item={openItem}
+          picnicConnected={Boolean(picnic.status?.connected)}
+          onQuantity={(quantity) => updateQuantityMutation.mutate({ itemId: openItem.id, quantity })}
+          onDelete={() => deleteItemMutation.mutate(openItem.id)}
+          onClose={() => setOpenItemId(null)}
+        />
       )}
     </div>
   );

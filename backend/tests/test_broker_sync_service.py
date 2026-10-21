@@ -1,5 +1,6 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 
@@ -105,7 +106,11 @@ def connection(db_session, portfolio_id, assets) -> BrokerConnection:
 
 
 def run(db_session, t212, as_of=date(2026, 10, 3)):
-    return broker_sync_service.sync(db_session, t212, FakePrices(), as_of=as_of)
+    # A real run happens on its own `as_of` day, so it stamps `last_synced_at` with that day. Left to
+    # the wall clock, the next run's start (last sync - the refetch overlap) drifts past the test's
+    # fixed October dates as the real date moves on, and the run is skipped.
+    with patch.object(broker_sync_service, "_utcnow", return_value=datetime.combine(as_of, time(12))):
+        return broker_sync_service.sync(db_session, t212, FakePrices(), as_of=as_of)
 
 
 def rows(db_session) -> list[Transaction]:
@@ -296,3 +301,53 @@ def test_later_runs_reread_a_week(db_session, t212, connection, assets):
     run(db_session, t212, as_of=date(2026, 10, 20))
 
     assert ("fills", date(2026, 10, 20) - timedelta(days=7)) in t212.calls
+
+
+def test_with_a_cashback_account_the_weeks_interest_is_cash_and_the_cashback_is_gripr_income(db_session, t212, connection, portfolio_id):
+    from app.models.gripr_account import GriprAccount, GriprAccountType, GriprBalanceMode
+    from app.models.gripr_category import GriprCategory, GriprCategoryKind
+    from app.models.gripr_transaction import GriprTransaction, GriprTransactionType
+
+    cashback = GriprAccount(name="Cashback", type=GriprAccountType.SAVINGS, balance_mode=GriprBalanceMode.TRANSACTIONAL)
+    category = GriprCategory(name="Cashback", kind=GriprCategoryKind.INCOME)
+    db_session.add_all([cashback, category])
+    db_session.flush()
+    connection.cashback_account_id = cashback.id
+    t212.cash = [
+        cash("0.05", date(2026, 10, 2), "Interest on cash"),
+        cash("0.03", date(2026, 10, 4), "Interest on cash", currency="USD"),
+        cash("0.11", date(2026, 10, 3), "Spending cashback"),
+        cash("2.63", date(2026, 10, 4), "Spending cashback"),
+    ]
+
+    result = run(db_session, t212, as_of=date(2026, 10, 5))
+    run(db_session, t212, as_of=date(2026, 10, 6))  # again: nothing twice
+
+    assert (result.deposits, result.cashbacks) == (1, 1)
+    interest, deposit = rows(db_session)
+    assert (deposit.type, deposit.date, deposit.total_eur, deposit.source_ref) == (TT.DEPOSIT, date(2026, 10, 4), Decimal("2.74"), "t212:cashback-deposit:2026-W40")
+    assert (interest.type, interest.date, interest.total_eur, interest.source_ref) == (TT.INTEREST, date(2026, 10, 4), Decimal("0.08"), "t212:week:2026-W40")
+    assert interest.notes == "Trading 212 interest, week 40 (02 Oct–04 Oct)"
+    (income,) = db_session.query(GriprTransaction).all()
+    assert (income.type, income.amount, income.account_id, income.category_id, income.date) == (
+        GriprTransactionType.INCOME, Decimal("2.74"), cashback.id, category.id, date(2026, 10, 4)
+    )
+    assert income.source_ref == "t212:cashback:2026-W40"
+
+
+def test_a_week_with_only_cashback_books_no_interest_row(db_session, t212, connection):
+    from app.models.gripr_account import GriprAccount, GriprAccountType, GriprBalanceMode
+    from app.models.gripr_transaction import GriprTransaction
+
+    account = GriprAccount(name="Cashback", type=GriprAccountType.SAVINGS, balance_mode=GriprBalanceMode.TRANSACTIONAL)
+    db_session.add(account)
+    db_session.flush()
+    connection.cashback_account_id = account.id
+    t212.cash = [cash("1.20", date(2026, 10, 3), "Spending cashback")]
+
+    result = run(db_session, t212, as_of=date(2026, 10, 5))
+
+    assert (result.deposits, result.cashbacks) == (0, 1)
+    (deposit,) = rows(db_session)
+    assert (deposit.type, deposit.total_eur) == (TT.DEPOSIT, Decimal("1.20"))  # pays for the pie's buys
+    assert db_session.query(GriprTransaction).count() == 1

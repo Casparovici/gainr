@@ -6,28 +6,41 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The home server deploys a commit only once every job here has passed on it (docs/adr/0042).
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          # What the home server runs; keep the two in step.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
       - name: Install dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
-      - name: Run tests
+        run: pip install -r requirements-dev.txt
+      - name: Lint
         working-directory: backend
-        run: pytest
+        run: ruff check .
+      - name: Run tests (with coverage)
+        working-directory: backend
+        run: pytest --cov=app/services --cov-report=json --cov-report=term:skip-covered
+      - name: Coverage floor (80% per service module)
+        working-directory: backend
+        run: python -m scripts.check_coverage coverage.json
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      # The tests run on a newer Node than the build does: jsdom 30 needs 22.22.2, 24.15 or newer
+      # (its HTTP client crashes on older ones). The smoke job below still builds on Node 20, the
+      # baseline the server builds on.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
@@ -42,3 +55,44 @@ jobs:
       - name: Build (typechecks)
         working-directory: frontend
         run: npm run build
+
+  # The whole app as deployed: migrations on an empty database, app/main.py with every router,
+  # uvicorn serving the API and the built frontend.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          npm ci --prefix frontend
+      - name: Build the frontend
+        run: npm run build --prefix frontend
+      - name: Start the app and check it answers
+        run: .github/scripts/smoke.sh
+
+  # Known vulnerabilities in the dependencies: the app's Python packages (and CI's own tools), and
+  # the frontend's production npm packages at high severity and up. A new advisory against a pin
+  # turns this red; Dependabot usually has the bump waiting.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Python dependencies
+        run: pip install pip-audit==2.7.3 && pip-audit -r backend/requirements-dev.txt
+      - name: npm dependencies (production, high and up)
+        if: always()
+        run: npm audit --prefix frontend --omit=dev --audit-level=high

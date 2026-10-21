@@ -1,3 +1,5 @@
+import { dateLocale, tp } from "../i18n";
+
 export function toNumber(value: string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const n = parseFloat(value);
@@ -31,6 +33,15 @@ const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
 
 /** For values denominated in an asset's native currency (e.g. transaction `price`), which
  * isn't always EUR — unlike formatEur, which is only for fields the backend guarantees are EUR. */
+/** "+€ 314,20" / "−€ 12,00": a change in euros, signed both ways so it reads as a move, not a
+ * balance. Zero and missing read as plain "€ 0,00" and "—". */
+export function formatSignedEur(value: string | number | null | undefined, compact = false): string {
+  const n = typeof value === "string" ? toNumber(value) : value;
+  if (n === null || n === undefined) return "—";
+  const text = formatEur(Math.abs(n), compact);
+  return n > 0 ? `+${text}` : n < 0 ? `−${text}` : text;
+}
+
 export function formatCurrency(value: string | number | null | undefined, currency: string | null | undefined): string {
   const n = typeof value === "string" ? toNumber(value) : value;
   if (n === null || n === undefined) return "—";
@@ -66,10 +77,18 @@ export function formatRatio(value: string | number | null | undefined, digits = 
   return `${n.toLocaleString(NUMBER_LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits })}x`;
 }
 
-export function formatQuantity(value: string | null | undefined): string {
+/** "3,3 months" -- a runway or a duration, one decimal. */
+export function formatMonths(value: string | number | null | undefined): string {
+  const n = typeof value === "string" ? toNumber(value) : value;
+  if (n === null || n === undefined) return "—";
+  const text = n.toLocaleString(NUMBER_LOCALE, { maximumFractionDigits: 1 });
+  return tp(Math.abs(n), "{text} month", "{text} months", { text });
+}
+
+export function formatQuantity(value: string | null | undefined, maximumFractionDigits = 6): string {
   const n = toNumber(value);
   if (n === null) return "—";
-  return n.toLocaleString(NUMBER_LOCALE, { maximumFractionDigits: 6 });
+  return n.toLocaleString(NUMBER_LOCALE, { maximumFractionDigits });
 }
 
 /** Today as a YYYY-MM-DD string in the *local* calendar — toISOString() would answer in UTC
@@ -92,7 +111,13 @@ export function addDaysIso(iso: string, days: number): string {
 
 export function formatDate(value: string, opts?: Intl.DateTimeFormatOptions): string {
   const d = new Date(value + "T00:00:00");
-  return d.toLocaleDateString("en-IE", opts ?? { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleDateString(dateLocale("en-IE"), opts ?? { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** "14:45" -- the local clock time of a full ISO timestamp (one carrying its offset, like a
+ * live quote's `price_quoted_at`). */
+export function formatTime(value: string): string {
+  return new Date(value).toLocaleTimeString(dateLocale("en-IE"), { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 // -- decimal input handling -------------------------------------------------
@@ -154,14 +179,14 @@ export function formatCompactCurrency(value: string | number | null | undefined,
   return formatter.format(n);
 }
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
 /** "3 hours ago" for a news timestamp. Coarse on purpose — the exact minute a story landed
  * isn't the point, and a stale relative label is less misleading than a precise wrong one. */
 export function formatRelativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const minutes = Math.round((then - Date.now()) / 60000);
+  // Made per call: the language can change while the app runs.
+  const relativeTimeFormatter = new Intl.RelativeTimeFormat(dateLocale("en"), { numeric: "auto" });
 
   if (Math.abs(minutes) < 60) return relativeTimeFormatter.format(minutes, "minute");
   const hours = Math.round(minutes / 60);

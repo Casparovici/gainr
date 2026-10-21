@@ -79,8 +79,7 @@ Debit like any bank account. Only the card's own activity reaches gripr:
 portfolio it books into, a start date, and the instruments held back for lack of an asset.
 `broker_synced_items` records every handled fill, dividend and week, keyed as the booked row's
 `source_ref` (`t212:fill:<id>`, `t212:dividend:<ref>`, `t212:week:2026-W40`), so each is booked
-once. It runs from the daily timer after the bank sync, or with "Sync now" on the Transactions
-page:
+once. It runs from the daily timer after the bank sync, or with "Sync now" in gainr's settings:
 
 - **Fills** are booked as Buy/Sell for the cash they moved. `total_eur` is Trading 212's net
   value, `costs` its fees, and `value_eur` the difference. A fill paid from the USD wallet is
@@ -97,7 +96,7 @@ page:
   export is only requested when a completed week is still unbooked, so about once a week.
 - **Assets are found by ISIN** (`assets.isin`, not unique: an ISIN on two assets is held back with
   a message rather than guessed). A record for an unknown ISIN is held back and listed on the
-  Transactions page. The reader picks the asset it is, or adds one there (Yahoo listing picker
+  settings dialog (the gear in gainr's top row). The reader picks the asset it is, or adds one there (Yahoo listing picker
   included). The next run reads back to the oldest held record, however long ago it was.
 
 **Daily timer.** `gainr-refresh.service` gained `scripts.sync_brokers` and now loads
@@ -131,3 +130,36 @@ on the server, as `deploy.sh` doesn't install units.
   eventually funded it. Currency conversion fees in the export aren't booked anywhere yet.
 - T212 Debit becomes bank-fed. Its recurring rules (Allianz, Netflix) stop booking their own rows
   and wait for the card payment, as on ING.
+
+## Addendum: moved to settings (2026-10-05)
+
+The sync's card left the Transactions page for a gear in the top row of every gainr page, like gripr's.
+A sync that needs attention shows in the notifications bell, which is where the card's status line was
+the only other place to see it.
+
+## Addendum: cashback and interest are told apart (2026-10-05)
+
+The weekly batch used to be one Deposit in gainr for interest and cashback together. They're different
+money: the interest is cash earned in the Invest account, while the cashback (1.5% of card spending,
+invested in a pie once it reaches €1) is income the reader wants to see in gripr. The pie is TDIV, so its
+auto-invest buys are fills in Main's existing TDIV position, and the cashback is the cash that pays for
+them. With a cashback account chosen in gainr's settings
+(`broker_connections.cashback_account_id`, the gripr account linked to Main), a completed week books:
+
+- the **interest** as an Interest row in the portfolio's cash on the Sunday (`t212:week:<week>`);
+- the **cashback** as a Deposit in the same portfolio (`t212:cashback-deposit:<week>`), so Main's cash
+  matches Trading 212's, and as income in that gripr account under the Cashback category
+  (`t212:cashback:<week>`), so income overviews count it. Net worth doesn't count it twice: a linked
+  account takes its balance from the portfolio, not from its transactions.
+
+Without a cashback account both stay one Deposit, as before. gripr's separate Cashback account was
+retired once the pie's earlier shares were added to Main's TDIV position.
+
+## Addendum: card payments match within two days (2026-10-06)
+
+A card entry carries the day the payment was made, so the row entered for it is dated the same, give
+or take a day. The generic 7-day matching window (ADR 0029, made for banks that report a payment days
+late) let a Jumbo payment of €16.75 on the 5th claim the hand-entered €16.75 of the 1st, which the sync
+never reads because it predates the start date, so the payment was never booked. Card payments now match
+within two days; top-ups and withdrawals, which can post days after the transfer, keep seven.
+

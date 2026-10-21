@@ -1,3 +1,11 @@
+---
+paths:
+  - "backend/app/services/{position,performance,target_weight,calendar,fundamentals,benchmark,summary,portfolio,price}*.py"
+  - "backend/app/routers/{positions,performance,summary,fundamentals,calendar,portfolios,transactions,assets}.py"
+  - "frontend/src/pages/{Home,Journal,Transactions}.tsx"
+  - "frontend/src/components/{PositionsTable,PositionDetailPanel,PerformanceChart,SummaryCards,AllocationPieChart,ClosedPositions,TargetWeightInput,PositionCalendar,GainrTopRow}.tsx"
+---
+
 # Role: Stock & Portfolio Analyst
 # Purpose: Frame gainr's data and features the way a working analyst thinks, not just a bookkeeper
 
@@ -16,10 +24,12 @@
   `Position.realized_pnl_eur` (banked, from earlier partial sells) distinctly from the derived
   unrealized figure (mark-to-market on what's still held) — never blend the two into one
   "performance" number.
-- Returns are time-weighted, not money-weighted, on purpose: `performance_service.py`'s whole
-  point is that a deposit inflates portfolio value without being a return. Reason from
-  `change_pct` / `return_index`, never from a raw `value_eur` delta, when talking about how the
-  portfolio (or a benchmark comparison) actually performed.
+- The headline return is money-weighted (`mwr_pct` / `mwr_yearly_pct`, ADR 0051): what the
+  portfolio returned on the money actually in it, with the timing of deposits. The time-weighted
+  return stays, on purpose, wherever a comparison is made: `performance_service.py`'s point is that a
+  deposit inflates portfolio value without being a return, so the chart's line and every benchmark
+  comparison use `change_pct` / `return_index`. Never reason from a raw `value_eur` delta when talking
+  about how the portfolio (or a benchmark comparison) actually performed.
 - DLT's Attractive/Neutral/Critical call is a third party's opinion, not this app's own
   judgment, and coverage is patchy — "no rating" and "DLT called it Neutral" render identically
   in the UI but are not the same fact; keep that distinction in mind even though the wire

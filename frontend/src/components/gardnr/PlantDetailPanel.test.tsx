@@ -15,6 +15,10 @@ vi.mock("../../api/gardnrClient", () => ({
   },
 }));
 
+vi.mock("../notr/LinkedNotes", () => ({
+  default: ({ plantId }: { plantId?: number }) => <div data-testid="linked-notes">notities van plant {plantId}</div>,
+}));
+
 const schedule: GardenCareSchedule = {
   id: 4, plant_id: 7, action_type: "water", custom_label: null, interval_value: 3, frequency: "daily",
   is_active: true, start_date: null, notes: null, next_due: "2030-01-01", is_overdue: false,
@@ -62,6 +66,17 @@ describe("PlantDetailPanel schedules", () => {
         notes: null,
       }),
     );
+  });
+
+  it("lists the notr notes linked to the plant on the overview", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PlantDetailPanel plantId={7} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("linked-notes")).toHaveTextContent("plant 7");
+    expect(screen.getByRole("region", { name: "Notities" })).toBeInTheDocument();
   });
 
   it("lets a schedule start on a chosen date", async () => {

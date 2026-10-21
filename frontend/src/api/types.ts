@@ -49,6 +49,29 @@ export interface Transaction {
   ticker: string | null;
   asset_name: string | null;
   native_currency: string | null;
+  attachment_count: number;
+}
+
+export interface TransactionAttachment {
+  id: number;
+  transaction_id: number;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+/** Where a transaction's attachments live: gainr and gripr each have their own endpoints, and the
+ * attachments UI is the same for both. */
+export interface AttachmentSource {
+  /** Namespaces the attachment list's cache entry. */
+  key: string;
+  /** The transaction lists to refresh after a change (they show the paperclip). */
+  invalidates: string[][];
+  list: (transactionId: number) => Promise<TransactionAttachment[]>;
+  upload: (transactionId: number, file: File) => Promise<TransactionAttachment>;
+  remove: (transactionId: number, attachmentId: number) => Promise<void>;
+  url: (transactionId: number, attachmentId: number) => string;
 }
 
 export interface TransactionPage {
@@ -56,7 +79,7 @@ export interface TransactionPage {
   total: number;
 }
 
-export type TransactionInput = Partial<Omit<Transaction, "id" | "ticker" | "asset_name">> & {
+export type TransactionInput = Partial<Omit<Transaction, "id" | "ticker" | "asset_name" | "attachment_count">> & {
   date: string;
   type: TransactionType;
   portfolio_id: number;
@@ -114,6 +137,13 @@ export interface Position {
   cost_basis_eur: string;
   current_price_native: string | null;
   price_date: string | null;
+  /** Set when the price is the hourly live quote rather than a daily close: when that trade
+   * happened (ISO, UTC). Null for a close, a fallback price, and the CASH row. */
+  price_quoted_at: string | null;
+  /** The move since yesterday's close, in euros (FX included) and as a share of yesterday's
+   * value. Null for CASH and for a holding without a close from yesterday or before. */
+  day_change_eur: string | null;
+  day_change_pct: string | null;
   native_currency: string;
   market_value_eur: string | null;
   unrealized_pnl_eur: string | null;
@@ -157,12 +187,22 @@ export interface Summary {
   holdings_value_eur: string;
   ytd_return_eur: string;
   ytd_return_pct: string | null;
+  /** Money-weighted (XIRR) over the year so far: the headline, with the timing of deposits in it.
+   * Null when there is no such rate (no money moved, one day of history). */
+  ytd_mwr_pct: string | null;
+  /** Money-weighted over the whole history; `total_mwr_yearly_pct` is the same per year, given once
+   * there is a year of history. */
+  total_mwr_pct: string | null;
+  total_mwr_yearly_pct: string | null;
   total_return_eur: string;
   total_return_pct: string | null;
   unrealized_pnl_eur: string;
   unrealized_pnl_pct: string | null;
   realized_pnl_eur: string;
   total_invested_eur: string;
+  /** The portfolio's time-weighted move since yesterday's close (the chart's 1D range). */
+  day_change_eur: string | null;
+  day_change_pct: string | null;
   as_of: string;
 }
 
@@ -196,8 +236,114 @@ export interface Performance {
   start_value_eur: string | null;
   end_value_eur: string | null;
   change_eur: string | null;
+  /** Time-weighted: the investments' return, deposits and their timing left out. */
   change_pct: string | null;
+  /** Money-weighted (XIRR) over the same range: your timing included. Null for 1D. */
+  mwr_pct: string | null;
+  /** The money-weighted return per year; only for a range of a year or more. */
+  mwr_yearly_pct: string | null;
   benchmarks: BenchmarkSeries[];
+}
+
+/** The ranges of a position's own price chart (docs/adr/0053). */
+export type PriceChartRange = "1D" | "1W" | "1M" | "YTD" | "3Y";
+
+export interface PriceChartPoint {
+  /** An ISO date for a daily close, an ISO moment (UTC, "…Z") for an intraday bar. */
+  time: string;
+  /** In the position's trading currency. */
+  price: string;
+}
+
+/** A position's price over a range, in the currency it trades in -- not a return. */
+export interface PriceChart {
+  range: PriceChartRange;
+  currency: string;
+  interval: "intraday" | "daily";
+  points: PriceChartPoint[];
+  /** What the change is measured from: yesterday's close for 1D, the first close of the range. */
+  start_price: string | null;
+  end_price: string | null;
+  change: string | null;
+  change_pct: string | null;
+  /** 1D was asked for but there are no intraday prices: the points are the last week's closes. */
+  is_fallback: boolean;
+  /** When the last point was traded (ISO, UTC), for a live or intraday price. */
+  as_of: string | null;
+}
+
+export interface DividendMonth {
+  /** YYYY-MM */
+  month: string;
+  received_eur: string;
+  /** Last 12 months' payments per share times the shares held now. */
+  expected_eur: string;
+}
+
+export interface DividendYear {
+  year: number;
+  total_eur: string;
+  /** January..December */
+  months: string[];
+}
+
+export interface DividendHolding {
+  asset_id: number;
+  ticker: string;
+  name: string;
+  is_held: boolean;
+  received_total_eur: string;
+  received_12m_eur: string;
+  payments_12m: number;
+  expected_12m_eur: string;
+  last_paid_on: string | null;
+  yield_on_cost_pct: string | null;
+  current_yield_pct: string | null;
+}
+
+export interface DividendIncome {
+  as_of: string;
+  received_this_year_eur: string;
+  received_last_year_eur: string;
+  received_12m_eur: string;
+  expected_12m_eur: string;
+  paying_holdings: number;
+  yield_on_cost_pct: string | null;
+  current_yield_pct: string | null;
+  /** The last 12 months received (this one included), then the next 12 expected. */
+  months: DividendMonth[];
+  /** Newest first. */
+  years: DividendYear[];
+  holdings: DividendHolding[];
+}
+
+export interface RebalancePurchase {
+  /** 0 = cash */
+  asset_id: number;
+  ticker: string;
+  name: string;
+  /** Always attractive or neutral (only those are bought); null for cash. */
+  dlt_judgment: DltJudgment | null;
+  amount_eur: string;
+  quantity: string | null;
+  weight_before_pct: string;
+  weight_after_pct: string;
+  target_pct: string;
+}
+
+export interface RebalancePlan {
+  amount_eur: string;
+  from_cash: boolean;
+  cash_eur: string;
+  purchases: RebalancePurchase[];
+  /** Holdings that get none of the amount; they still count towards the total. */
+  left_out: RebalanceLeftOut[];
+}
+
+export interface RebalanceLeftOut {
+  name: string;
+  dlt_judgment: DltJudgment | null;
+  reason: "critical" | "unrated" | "no_target";
 }
 
 export interface NewsItem {
@@ -268,45 +414,34 @@ export interface AssetFinancials {
   key_metrics: KeyMetrics | null;
 }
 
-export interface PositionNoteLabel {
-  id: number;
-  name: string;
-  sort_order: number;
-  color: string | null;
-  is_archived: boolean;
+export interface MetricHistoryPoint {
+  label: string;
+  value: string;
 }
 
-/** One position a journal note is about. */
-export interface NoteAsset {
-  id: number;
-  ticker: string;
-  name: string;
+/** One line of a position's analyst checklist. No value and no text means Yahoo doesn't carry
+ * it: source_hint says where to look instead. */
+export interface PositionMetric {
+  key: string;
+  label: string;
+  unit: "pct" | "multiple" | "amount" | "number" | "text";
+  /** Why the metric matters for this holding. */
+  why: string | null;
+  value: string | null;
+  /** For a metric that is a list rather than a figure (largest holdings). */
+  text: string | null;
+  detail: string | null;
+  /** Oldest first. */
+  history: MetricHistoryPoint[];
+  source_hint: string | null;
 }
 
-/** A journal entry -- about one or more positions (see docs/adr/0024). The same rows back a
- * position's own Notes tab and the cross-position Journal tab. */
-export interface PositionNote {
-  id: number;
-  /** Every position the note is linked to, in ticker order. Never empty. */
-  assets: NoteAsset[];
-  title: string;
-  body: string;
-  created_at: string;
-  updated_at: string;
-  labels: PositionNoteLabel[];
-}
-
-export interface PositionNoteInput {
-  title: string;
-  body: string;
-  // Omitted on update = leave labels alone; [] = clear every label. Always sent on create.
-  label_ids?: number[];
-}
-
-/** A note written from the Journal, which picks its positions itself. On update, omitting
- * `asset_ids` leaves the linked positions alone. */
-export interface JournalNoteInput extends PositionNoteInput {
-  asset_ids: number[];
+export interface PositionMetrics {
+  /** "Growth company"; null when the position has no checklist. */
+  lens: string | null;
+  /** For the "amount" metrics; never converted to euros. */
+  currency: string | null;
+  metrics: PositionMetric[];
 }
 
 // -- position calendar (docs/adr/0025) --------------------------------------------------------
@@ -376,6 +511,8 @@ export interface BrokerStatus {
   enabled: boolean;
   since: string | null;
   portfolio_id: number | null;
+  /** The gripr account Trading 212's cashback is booked into; null = it stays in the weekly deposit. */
+  cashback_account_id: number | null;
   last_synced_at: string | null;
   last_error: string | null;
   unmapped: BrokerUnmapped[];
@@ -385,6 +522,7 @@ export interface BrokerSyncResult {
   booked: number;
   matched: number;
   deposits: number;
+  cashbacks: number;
   unmapped: BrokerUnmapped[];
   problems: string[];
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cappedRange, clampTo } from "./chartScale";
+import { cappedRange, clampTo, niceTicks } from "./chartScale";
 
 // Overview's money put aside: twelve months of investments, savings and reservations, with the
 // month €35k of home equity went into savings and the month part of it went out again.
@@ -29,5 +29,24 @@ describe("cappedRange", () => {
     expect(clampTo(35331, { min: -3500, max: 2500 })).toBe(2500);
     expect(clampTo(-13251, { min: -3500, max: 2500 })).toBe(-3500);
     expect(clampTo(400, null)).toBe(400);
+  });
+});
+
+describe("niceTicks", () => {
+  it("always includes 0 and covers the padded range with round values", () => {
+    const ticks = niceTicks(-1800, 2400);
+
+    expect(ticks).toContain(0);
+    expect(ticks[0]).toBeLessThanOrEqual(-1800);
+    expect(ticks[ticks.length - 1]).toBeGreaterThanOrEqual(2400);
+    expect(ticks).toEqual([-2000, -1000, 0, 1000, 2000, 3000]);
+  });
+
+  it("handles a range that is all non-negative", () => {
+    expect(niceTicks(0, 950)).toEqual([0, 200, 400, 600, 800, 1000]);
+  });
+
+  it("falls back to just zero for an empty range", () => {
+    expect(niceTicks(0, 0)).toEqual([0]);
   });
 });

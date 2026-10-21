@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,7 +20,7 @@ vi.mock("../../api/listrClient", () => ({
 function recipe(id: number, title: string, servings: number | null, categories: ListrRecipe["categories"] = []): ListrRecipe {
   return {
     id, title, servings, instructions: "", notes: null, is_archived: false, created_at: "2026-09-01T00:00:00Z",
-    updated_at: "2026-09-01T00:00:00Z", ingredients: [], categories, mealie_id: null,
+    updated_at: "2026-09-01T00:00:00Z", ingredients: [], categories, has_photo: false, mealie_id: null, source_url: null,
   };
 }
 
@@ -47,5 +47,22 @@ describe("Recipes", () => {
     expect(rows[0]).toHaveTextContent("4 personen");
     expect(rows[0]).toHaveTextContent("Italiaans");
     expect(rows[1]).toHaveTextContent("Personen onbekend");
+  });
+
+  it("says loading failed instead of showing no recipes, and retries", async () => {
+    vi.mocked(listrApi.listRecipes).mockRejectedValueOnce(new Error("502")).mockResolvedValueOnce([recipe(1, "Soep", 2)]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ListrRecipes />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Recepten laden mislukt.");
+    expect(screen.queryByText(/Nog geen recepten/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Opnieuw" }));
+    expect(await screen.findByRole("list", { name: "Recepten" })).toHaveTextContent("Soep");
   });
 });

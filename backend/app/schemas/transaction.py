@@ -1,4 +1,4 @@
-from datetime import date as date_
+from datetime import date as date_, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -51,6 +51,18 @@ class TransactionOut(TransactionBase):
     ticker: str | None = None
     asset_name: str | None = None
     native_currency: str | None = None  # currency `price`/`local_value` are denominated in
+    attachment_count: int = 0
+
+
+class TransactionAttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    transaction_id: int
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
 
 
 class TransactionPage(BaseModel):

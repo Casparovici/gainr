@@ -9,7 +9,6 @@ so a Mealie food resolves through, in order: a mapping the reader chose earlier
 reported by `preview` and blocks `import_recipes` until the reader has picked a product for it.
 """
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -21,7 +20,10 @@ from app import config
 from app.models.listr_item import ListrItem
 from app.models.listr_recipe import ListrRecipe
 from app.repositories import listr_item_repo, listr_mealie_food_repo, listr_recipe_category_repo, listr_recipe_repo
-from app.services.mealie_provider import MealieIngredient, MealieProvider, MealieRecipe, MealieRecipeSummary
+from app.services.errors import InvalidRequest
+from app.services.listr_catalog_service import dutch_plurals
+from app.services.listr_recipe_service import set_photo
+from app.services.mealie_provider import MealieError, MealieIngredient, MealieProvider, MealieRecipe, MealieRecipeSummary
 
 RecipeStatus = Literal["new", "changed", "unchanged"]
 
@@ -92,29 +94,13 @@ class _FoodResolver:
         return self._by_name.get((ingredient.food_name or "").casefold())
 
 
-_DOUBLE_VOWEL_CLOSED = re.compile(r"^(.*)([aeou])\2([^aeiou])$")
-
-
-def _dutch_plurals(word: str) -> set[str]:
-    """The plural spellings a Dutch singular food name plausibly has in the catalog -- Mealie
-    names foods in the singular ("tomaat", "ui"), the catalog was seeded as shopping items
-    ("Tomaten", "Uien"). Deliberately a handful of regular patterns plus "ei", not a lexicon:
-    a miss just means no suggestion, never a wrong import."""
-    forms = {word + "en", word + "s", word + "'s", word + "n", word + "eren"}
-    if match := _DOUBLE_VOWEL_CLOSED.match(word):  # tomaat -> tomaten, boon -> bonen
-        forms.add(f"{match[1]}{match[2]}{match[3]}en")
-    if len(word) > 2 and word[-1] not in "aeiou" and word[-2] in "aeiou" and word[-3] not in "aeiou":
-        forms.add(word + word[-1] + "en")  # kip -> kippen
-    return forms
-
-
 def _suggest(food_name: str, items: list[ListrItem]) -> ListrItem | None:
     food = food_name.casefold().strip()
     if not food:
         return None
     by_name = {item.name.casefold(): item for item in items}
     words = food.split()
-    for plural in sorted(_dutch_plurals(words[-1])):
+    for plural in sorted(dutch_plurals(words[-1])):
         if (item := by_name.get(" ".join([*words[:-1], plural]))) is not None:
             return item
 
@@ -227,28 +213,44 @@ class ListrMealieService:
         provider = self._provider_factory()
         try:
             statuses, pending = self._pending(db, provider)
+
+            food_names = {i.food_id: i.food_name for _, r in pending for i in r.ingredients if i.food_id}
+            for food_id, item_id in mappings.items():
+                if listr_item_repo.get_item(db, item_id) is None:
+                    raise ValueError(f"Grocery item {item_id} not found")
+                listr_mealie_food_repo.set_mapping(db, food_id, food_names.get(food_id) or food_id, item_id)
+
+            resolver = _FoodResolver(db)
+            unmatched = self._unmatched(pending, resolver)
+            if unmatched:
+                raise UnmappedMealieFoods(unmatched)
+
+            result = ImportResult(unchanged=sum(1 for s in statuses if s.status == "unchanged"))
+            for summary, recipe in pending:
+                created = self._upsert(db, summary, recipe, resolver)
+                self._import_photo(db, provider, recipe)
+                if created:
+                    result.created += 1
+                else:
+                    result.updated += 1
+            return result
         finally:
             provider.close()
 
-        food_names = {i.food_id: i.food_name for _, r in pending for i in r.ingredients if i.food_id}
-        for food_id, item_id in mappings.items():
-            if listr_item_repo.get_item(db, item_id) is None:
-                raise ValueError(f"Grocery item {item_id} not found")
-            listr_mealie_food_repo.set_mapping(db, food_id, food_names.get(food_id) or food_id, item_id)
-
-        resolver = _FoodResolver(db)
-        unmatched = self._unmatched(pending, resolver)
-        if unmatched:
-            raise UnmappedMealieFoods(unmatched)
-
-        result = ImportResult(unchanged=sum(1 for s in statuses if s.status == "unchanged"))
-        for summary, recipe in pending:
-            created = self._upsert(db, summary, recipe, resolver)
-            if created:
-                result.created += 1
-            else:
-                result.updated += 1
-        return result
+    @staticmethod
+    def _import_photo(db: Session, provider: MealieProvider, recipe: MealieRecipe) -> None:
+        """Mealie's picture replaces the recipe's photo, like the rest of an imported recipe. A
+        recipe without one keeps whatever photo it has, and a picture that can't be fetched or
+        read never fails the import -- the recipe itself is the point."""
+        if not recipe.has_image:
+            return
+        try:
+            raw = provider.get_image(recipe.id)
+            target = listr_recipe_repo.get_by_mealie_id(db, recipe.id)
+            if raw is not None and target is not None:
+                set_photo(db, target, raw)
+        except (MealieError, InvalidRequest):
+            pass
 
     def _upsert(self, db: Session, summary: MealieRecipeSummary, recipe: MealieRecipe, resolver: _FoodResolver) -> bool:
         fields = dict(

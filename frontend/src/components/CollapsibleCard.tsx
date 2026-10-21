@@ -74,7 +74,7 @@ export default function CollapsibleCard({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium text-slate-700"
+          className="flex min-w-[9rem] flex-1 items-center gap-2 text-left text-sm font-medium text-slate-700"
         >
           <span aria-hidden className="text-xs text-slate-400">
             {open ? "▼" : "►"}
@@ -90,7 +90,8 @@ export default function CollapsibleCard({
             className="text-slate-400 hover:text-slate-600"
           />
         )}
-        {meta && <div className="shrink-0">{meta}</div>}
+        {/* The title keeps a minimum width, so a wide `meta` wraps below it instead of squeezing it out. */}
+        {meta && <div className="min-w-0 max-w-full">{meta}</div>}
       </div>
       {info && (
         <p id={infoId} hidden={!infoOpen} className="px-4 pb-3 text-sm text-slate-600">

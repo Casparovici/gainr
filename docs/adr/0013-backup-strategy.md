@@ -69,3 +69,13 @@ place, and run `alembic upgrade head` afterward since local code is often ahead 
 schema the snapshot was taken under. This doesn't touch the recovery scenario ADR 0013 itself was
 written for — `gainr.service` restoring onto the box after real data loss is still the manual
 step described above — it's a distinct, lower-stakes use of the same nightly artifact.
+
+## Addendum: the database runs in WAL mode (2026-10-14)
+
+Since [ADR 0039](0039-sqlite-schema-and-connection.md) the database is in write-ahead-log mode, so
+`portfolio.db` can sit next to a `portfolio.db-wal` holding writes not yet copied into it. The
+backup is unaffected (the backup API reads through a connection, log included). A restore must
+deal with the log: stop `gainr.service` and the timers, move `portfolio.db-wal` and
+`portfolio.db-shm` aside together with the old `portfolio.db`, then drop the restored file in.
+Leaving the old log next to the restored database would replay it into the snapshot.
+`deploy/sync_from_homecloud.sh` does this for a dev machine.

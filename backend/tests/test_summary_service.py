@@ -167,3 +167,48 @@ def test_summary_is_isolated_per_portfolio(db_session, portfolio_id):
 
     assert mine["cash_eur"] == Decimal(1000)
     assert theirs["cash_eur"] == Decimal(200)
+
+
+def test_summary_carries_the_days_move_from_the_performance_series(db_session, portfolio_id, monkeypatch):
+    from app.services.performance_service import performance_service
+
+    make_txn(db_session, portfolio_id, None, TransactionType.DEPOSIT, date(2024, 1, 1), total_eur=Decimal(1000))
+    db_session.commit()
+    ranges = []
+
+    def fake_range(db, pid, range_key):
+        ranges.append(range_key)
+        return {"change_eur": Decimal("12.5"), "change_pct": Decimal("1.25")}
+
+    monkeypatch.setattr(performance_service, "get_range", fake_range)
+
+    summary = summary_service.get_summary(db_session, portfolio_id)
+
+    assert "1D" in ranges
+    assert (summary["day_change_eur"], summary["day_change_pct"]) == (Decimal("12.5"), Decimal("1.25"))
+
+
+def test_summary_carries_the_money_weighted_returns_of_this_year_and_since_start(db_session, portfolio_id, monkeypatch):
+    from app.services.performance_service import performance_service
+
+    make_txn(db_session, portfolio_id, None, TransactionType.DEPOSIT, date(2024, 1, 1), total_eur=Decimal(1000))
+    db_session.commit()
+    by_range = {
+        "1D": {"change_eur": Decimal(1), "change_pct": Decimal("0.1"), "mwr_pct": None, "mwr_yearly_pct": None},
+        "YTD": {"change_eur": Decimal(50), "change_pct": Decimal("5"), "mwr_pct": Decimal("4.2"), "mwr_yearly_pct": None},
+        "Max": {"change_eur": Decimal(90), "change_pct": Decimal("9"), "mwr_pct": Decimal("14"), "mwr_yearly_pct": Decimal("6.5")},
+    }
+    monkeypatch.setattr(performance_service, "get_range", lambda db, pid, range_key: by_range[range_key])
+
+    summary = summary_service.get_summary(db_session, portfolio_id)
+
+    assert summary["ytd_mwr_pct"] == Decimal("4.2")
+    assert (summary["total_mwr_pct"], summary["total_mwr_yearly_pct"]) == (Decimal("14"), Decimal("6.5"))
+    # The time-weighted year figure stays, for comparing against a benchmark.
+    assert summary["ytd_return_pct"] == Decimal("5")
+
+
+def test_summary_has_no_money_weighted_return_without_a_series(db_session, portfolio_id):
+    summary = summary_service.get_summary(db_session, portfolio_id)
+
+    assert (summary["ytd_mwr_pct"], summary["total_mwr_pct"], summary["total_mwr_yearly_pct"]) == (None, None, None)

@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base
+from app.db import Base, configure_sqlite
 from app.models import Asset, Portfolio  # noqa: F401  (register all models on Base.metadata)
 from app.services.performance_service import performance_service
 from app.services.trading212_provider import trading212_provider
@@ -36,6 +36,7 @@ def db_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    configure_sqlite(engine)
     Base.metadata.create_all(bind=engine)
     session = sessionmaker(bind=engine)()
     try:

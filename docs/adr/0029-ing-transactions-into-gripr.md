@@ -256,3 +256,53 @@ reaches back past `date_from` (one request), and an amount-only bank is read onl
 morning run; its entries wait two days anyway. A refused read is reported as "trying again
 tomorrow morning" and doesn't ask Enable Banking about the session, which isn't the problem.
 
+### Addendum: Trade Republic no longer waits; a hand entry claims the row (2026-10-06)
+
+Waiting two days after Trade Republic booked an entry (on top of the days it takes to book a card
+payment) made the connection feel useless, and the wait only existed so the reader's own entry came
+first. It now runs the other way round:
+
+- **No grace for an amount-only bank.** Its entries are handled on the next scheduled run (Trade
+  Republic is still read once a day). Entries that don't say who's on the other side but come from a
+  bank that otherwise can (a Trading 212 deposit or withdrawal) keep the two-day wait
+  (`ANONYMOUS_GRACE_DAYS`), because they look for the other bank's half of a transfer.
+- **A hand entry takes over the row.** `POST /gripr/transactions` goes through
+  `bank_sync_service.create_or_claim`. If an amount-only bank already booked a plain expense or income
+  of the same amount on that account (or the account a pot sits in) within `MATCH_DAYS`, still
+  uncategorised and unclaimed (`bank_synced_transactions.outcome = 'booked'`), the entry updates that
+  row instead of creating a second one. It keeps its `source_ref`, and the record moves to
+  `outcome = 'claimed'` so it can't be claimed twice. Closest date first, so two identical coffees
+  are two rows claimed by two entries. A row the reader has categorised is theirs: a later entry of the
+  same amount is a new transaction. Transfers and refunds are never claimed.
+- **Entries that can't say who's on the other side are handled last**, whatever their date, so the
+  other bank's entry from the same run (ING's half of a transfer) is already in gripr. Trade Republic
+  dated the 12th no longer books a transfer before ING's entry of the 13th can.
+
+Not covered: an ING entry that only shows up in a *later* run than Trade Republic's half of the same
+transfer. Trade Republic then books its half uncategorised and ING books the transfer, leaving one
+row to delete by hand. It needs ING to post later than the daily run reads it.
+
+### Addendum: categories learned per counterparty, matched loosely (2026-10-09)
+
+A payment the bank sync books takes the category the reader last gave a payment to the same
+counterparty. Trading 212 names the merchant; for ING the counterparty name stands in. Matching on
+the exact name learned almost nothing: ING spells the same shop differently per payment (a branch
+number, a city, a card terminal, a payment provider such as "via Rabo Smart Pay" or "BY BUCKAROO").
+
+- **`bank_synced_transactions.merchant` holds a matching key**, not the exact name
+  (`bank_sync_service.normalize_merchant`). It drops the payment provider, digits, punctuation and
+  filler words, then keeps the first word, or the first two when the first is short or only says what
+  kind of place it is ("restaurant", "nederlandse", ...). "Albert Heijn 1234 Amsterdam" and "ALBERT
+  HEIJN 5678 UTRECHT" share "albert"; "Nederlandse Spoorwegen" and "Nederlandse Gereformeerde Kerk"
+  stay apart. Rows recorded before the change were re-keyed by `scripts/rekey_merchants.py`, from the
+  counterparty still in a bank-booked row's notes.
+- **Filing similar ones is offered, never automatic.** After the reader categorises a bank-synced
+  transaction, `GET /gripr/transactions/{id}/similar` counts the *uncategorised* transactions with the
+  same key, and the page offers to file them too (`POST .../apply-to-similar`, through the transaction
+  service so a loan-linked category keeps its effect). Transactions the reader already filed are never
+  touched.
+
+The key is a heuristic: two different shops whose names start with the same distinctive word
+("Albert Heijn" and a hypothetical "Albert's Bikes") share a key. A learned category is only ever a
+suggestion the reader sees and can change, and "apply to similar" says how many it will file before it
+does.

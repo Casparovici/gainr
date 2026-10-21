@@ -11,6 +11,7 @@ import ModalOverlay from "../../components/ModalOverlay";
 import { IconChevronLeft, ModuleTopRow, PageTitle, primaryButtonClass, secondaryButtonClass } from "../../components/ui/kit";
 import { usePicnicConnect } from "../../hooks/usePicnicConnect";
 import { formatEur, toNumber } from "../../utils/format";
+import { dateLocale, t, tp } from "../../i18n";
 
 // An order whose payment is underway, remembered across the trip to the bank and back (the bank
 // returns to this page). Per-device convenience only -- Picnic itself is the record.
@@ -39,11 +40,11 @@ function writePending(pending: PendingCheckout | null) {
 
 const dayKey = (iso: string) => iso.slice(0, 10);
 const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" });
-const time = (iso: string) => new Date(iso).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleDateString(dateLocale("nl-NL"), { weekday: "short", day: "numeric", month: "short" });
+const time = (iso: string) => new Date(iso).toLocaleTimeString(dateLocale("nl-NL"), { hour: "2-digit", minute: "2-digit" });
 const slotLabel = (slot: ListrPicnicSlot) => `${dayLabel(slot.window_start)} ${time(slot.window_start)}–${time(slot.window_end)}`;
 const cutOffLabel = (iso: string) =>
-  new Date(iso).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleString(dateLocale("nl-NL"), { weekday: "short", hour: "2-digit", minute: "2-digit" });
 
 function CartLines({ cart, onAdd, onRemove, busy }: { cart: ListrPicnicCart; onAdd: (id: string) => void; onRemove: (id: string) => void; busy: boolean }) {
   return (
@@ -62,7 +63,7 @@ function CartLines({ cart, onAdd, onRemove, busy }: { cart: ListrPicnicCart; onA
               type="button"
               onClick={() => onRemove(line.product_id)}
               disabled={busy}
-              aria-label={`Een ${line.name} minder`}
+              aria-label={t("Een {name} minder", { name: line.name })}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-ui-line bg-ui-surface text-ui-ink-soft hover:bg-ui-tile disabled:opacity-40"
             >
               <Minus className="h-4 w-4" strokeWidth={2} />
@@ -72,7 +73,7 @@ function CartLines({ cart, onAdd, onRemove, busy }: { cart: ListrPicnicCart; onA
               type="button"
               onClick={() => onAdd(line.product_id)}
               disabled={busy}
-              aria-label={`Een ${line.name} meer`}
+              aria-label={t("Een {name} meer", { name: line.name })}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-ui-line bg-ui-surface text-ui-ink-soft hover:bg-ui-tile disabled:opacity-40"
             >
               <Plus className="h-4 w-4" strokeWidth={2} />
@@ -153,7 +154,7 @@ function SlotPicker({
                 {time(slot.window_start)}–{time(slot.window_end)}
               </span>
               <span className="text-[11px] text-ui-muted">
-                {!slot.is_available ? (slot.unavailable_reason === "OUT_OF_CAPACITY" ? "vol" : "niet beschikbaar") : slot.minimum_order ? `min. ${formatEur(slot.minimum_order)}` : " "}
+                {!slot.is_available ? (slot.unavailable_reason === "OUT_OF_CAPACITY" ? t("vol") : t("niet beschikbaar")) : slot.minimum_order ? t("min. {amount}", { amount: formatEur(slot.minimum_order) }) : " "}
               </span>
             </button>
           );
@@ -161,9 +162,7 @@ function SlotPicker({
       </div>
       {selected && (
         <p className="m-0 text-sm text-ui-ink-soft">
-          {chosen ? "Gekozen" : "Voorgesteld door Picnic"}: <span className="font-semibold text-ui-ink">{slotLabel(selected)}</span> · bestellen
-          vóór {cutOffLabel(selected.cut_off)}
-        </p>
+          {chosen ? t("Gekozen") : t("Voorgesteld door Picnic")}: <span className="font-semibold text-ui-ink">{slotLabel(selected)}</span>{" "}{t("· bestellen vóór {cutoff}", { cutoff: cutOffLabel(selected.cut_off) })}</p>
       )}
     </div>
   );
@@ -227,7 +226,7 @@ export default function ListrPicnicCart() {
     },
     onError: (e) => {
       setConfirming(false);
-      setError(e instanceof Error && e.message.startsWith("400") ? e.message.replace(/^400[^:]*: /, "") : "Bestellen is mislukt. Probeer het opnieuw.");
+      setError(e instanceof Error && e.message.startsWith("400") ? e.message.replace(/^400[^:]*: /, "") : t("Bestellen is mislukt. Probeer het opnieuw."));
       queryClient.invalidateQueries({ queryKey: ["listr-picnic-cart"] });
     },
   });
@@ -265,69 +264,55 @@ export default function ListrPicnicCart() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow
         left={
-          <Link to="/listr" aria-label="Terug naar lijsten" className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
-            <IconChevronLeft size={20} />
-            Lijsten
-          </Link>
+          <Link to="/listr" aria-label={t("Terug naar lijsten")} className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
+            <IconChevronLeft size={20} />{t("Lijsten")}</Link>
         }
       >
-        <Link to="/listr/aanbiedingen" aria-label="Aanbiedingen" className={`${secondaryButtonClass} no-underline`}>
-          <Tag className="h-[18px] w-[18px]" strokeWidth={2} />
-          Aanbiedingen
-        </Link>
-        <Link to="/listr/bestellingen" aria-label="Picnic-bestellingen" className={`${secondaryButtonClass} no-underline`}>
+        <Link to="/listr/aanbiedingen" aria-label={t("Aanbiedingen")} className={`${secondaryButtonClass} no-underline`}>
+          <Tag className="h-[18px] w-[18px]" strokeWidth={2} />{t("Aanbiedingen")}</Link>
+        <Link to="/listr/bestellingen" aria-label={t("Picnic-bestellingen")} className={`${secondaryButtonClass} no-underline`}>
           <ReceiptEuro className="h-[18px] w-[18px]" strokeWidth={2} />
-          <span className="hidden sm:inline">Bestellingen</span>
+          <span className="hidden sm:inline">{t("Bestellingen")}</span>
         </Link>
       </ModuleTopRow>
-      <PageTitle subtitle={cart ? `${cart.item_count} ${cart.item_count === 1 ? "product" : "producten"} · ${formatEur(cart.checkout_total)}` : "Je Picnic-winkelwagen"}>
-        Winkelwagen
-      </PageTitle>
+      <PageTitle subtitle={cart ? tp(cart.item_count, "{n} product · {total}", "{n} producten · {total}", { total: formatEur(cart.checkout_total) }) : t("Je Picnic-winkelwagen")}>{t("Winkelwagen")}</PageTitle>
 
       {placed && (
         <div className="rounded-2xl bg-ui-brand-soft px-4 py-3.5 text-ui-brand-strong">
-          <div className="text-[15px] font-bold">Besteld bij Picnic</div>
+          <div className="text-[15px] font-bold">{t("Besteld bij Picnic")}</div>
           <div className="text-sm">
-            {placed.slotLabel} · {formatEur(placed.total)}. Je ziet hem bij <Link to="/listr/bestellingen" className="font-semibold underline">Bestellingen</Link> zodra hij bezorgd is.
-          </div>
+            {placed.slotLabel} · {formatEur(placed.total)}{t(". Je ziet hem bij")}{" "}<Link to="/listr/bestellingen" className="font-semibold underline">{t("Bestellingen")}</Link>{" "}{t("zodra hij bezorgd is.")}</div>
         </div>
       )}
 
       {pending && (
         <div className="flex flex-col gap-3 rounded-2xl bg-ui-today-soft px-4 py-3.5 text-ui-today">
           <div>
-            <div className="text-[15px] font-bold">Betaling bezig</div>
-            <div className="text-sm">
-              Rond de betaling van {formatEur(pending.total)} af in je bank-app. Pas daarna is de bestelling voor {pending.slotLabel} geplaatst.
-              {statusQuery.data && !statusQuery.data.finished && ` (status: ${statusQuery.data.status.toLowerCase()})`}
+            <div className="text-[15px] font-bold">{t("Betaling bezig")}</div>
+            <div className="text-sm">{t("Rond de betaling van {total} af in je bank-app. Pas daarna is de bestelling voor {slotLabel} geplaatst.", { total: formatEur(pending.total), slotLabel: pending.slotLabel })}{statusQuery.data && !statusQuery.data.finished && ` (${t("status: {status}", { status: statusQuery.data.status.toLowerCase() })})`}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a href={pending.paymentUrl} className={`${primaryButtonClass} h-11 no-underline`}>
-              Naar betalen
-            </a>
+            <a href={pending.paymentUrl} className={`${primaryButtonClass} h-11 no-underline`}>{t("Naar betalen")}</a>
             <button type="button" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending} className={secondaryButtonClass}>
-              {cancelMutation.isPending ? "Annuleren…" : "Bestelling annuleren"}
+              {cancelMutation.isPending ? t("Annuleren…") : t("Bestelling annuleren")}
             </button>
           </div>
         </div>
       )}
 
       {!picnic.status ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
       ) : !picnic.status.configured || !connected ? (
-        <PicnicConnectCard picnic={picnic} reason="Verbind met Picnic om je winkelwagen te zien en te bestellen." />
+        <PicnicConnectCard picnic={picnic} reason={t("Verbind met Picnic om je winkelwagen te zien en te bestellen.")} />
       ) : cartQuery.isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Winkelwagen ophalen bij Picnic…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Winkelwagen ophalen bij Picnic…")}</div>
       ) : cartQuery.isError || !cart ? (
-        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">De winkelwagen ophalen is mislukt. Probeer het later opnieuw.</div>
+        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">{t("De winkelwagen ophalen is mislukt. Probeer het later opnieuw.")}</div>
       ) : cart.lines.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">
-          <ShoppingCart className="h-8 w-8 text-ui-faint" strokeWidth={1.5} />
-          Je Picnic-winkelwagen is leeg. Open een lijst en kies "Push naar Picnic" om hem te vullen, of kijk bij de{" "}
-          <Link to="/listr/aanbiedingen" className="font-semibold text-ui-brand-strong">
-            aanbiedingen
-          </Link>
+          <ShoppingCart className="h-8 w-8 text-ui-faint" strokeWidth={1.5} />{t("Je Picnic-winkelwagen is leeg. Open een lijst en kies \"Push naar Picnic\" om hem te vullen, of kijk bij de")}{" "}
+          <Link to="/listr/aanbiedingen" className="font-semibold text-ui-brand-strong">{t("aanbiedingen")}</Link>
           .
         </div>
       ) : (
@@ -336,30 +321,30 @@ export default function ListrPicnicCart() {
             <CartLines cart={cart} onAdd={(id) => addMutation.mutate(id)} onRemove={(id) => removeMutation.mutate(id)} busy={busy} />
             <dl className="m-0 flex flex-col gap-1 border-t border-ui-border px-4 py-3 text-sm">
               <div className="flex justify-between text-ui-ink-soft">
-                <dt>Producten</dt>
+                <dt>{t("Producten")}</dt>
                 <dd className="m-0 tabular-nums">{formatEur(cart.total)}</dd>
               </div>
               {toNumber(cart.deposit) ? (
                 <div className="flex justify-between text-ui-ink-soft">
-                  <dt>Statiegeld</dt>
+                  <dt>{t("Statiegeld")}</dt>
                   <dd className="m-0 tabular-nums">{formatEur(cart.deposit)}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between text-[15px] font-bold text-ui-ink">
-                <dt>Te betalen</dt>
+                <dt>{t("Te betalen")}</dt>
                 <dd className="m-0 tabular-nums">{formatEur(cart.checkout_total)}</dd>
               </div>
             </dl>
           </section>
 
           <section className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface p-4">
-            <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Bezorgmoment</h2>
+            <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Bezorgmoment")}</h2>
             {slotsQuery.isLoading ? (
-              <p className="m-0 text-sm text-ui-muted">Tijden ophalen…</p>
+              <p className="m-0 text-sm text-ui-muted">{t("Tijden ophalen…")}</p>
             ) : slotsQuery.isError ? (
-              <p className="m-0 text-sm text-ui-late">Bezorgtijden ophalen is mislukt.</p>
+              <p className="m-0 text-sm text-ui-late">{t("Bezorgtijden ophalen is mislukt.")}</p>
             ) : slots.every((s) => !s.is_available) ? (
-              <p className="m-0 text-sm text-ui-muted">Picnic heeft op dit moment geen bezorgmomenten vrij.</p>
+              <p className="m-0 text-sm text-ui-muted">{t("Picnic heeft op dit moment geen bezorgmomenten vrij.")}</p>
             ) : (
               <SlotPicker
                 slots={slots}
@@ -369,7 +354,7 @@ export default function ListrPicnicCart() {
                 busy={slotMutation.isPending}
               />
             )}
-            {slotMutation.isError && <p className="m-0 text-sm text-ui-late">Dat bezorgmoment kiezen is mislukt; misschien is het net vol.</p>}
+            {slotMutation.isError && <p className="m-0 text-sm text-ui-late">{t("Dat bezorgmoment kiezen is mislukt; misschien is het net vol.")}</p>}
           </section>
 
           {error && <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-sm font-semibold text-ui-late">{error}</div>}
@@ -382,16 +367,14 @@ export default function ListrPicnicCart() {
             }}
             disabled={!canOrder || !!pending}
             className={`${primaryButtonClass} w-full sm:w-auto sm:self-end`}
-          >
-            Bestellen · {formatEur(cart.checkout_total)}
-          </button>
+          >{t("Bestellen · {checkouttotal}", { checkouttotal: formatEur(cart.checkout_total) })}</button>
           {!pending && !canOrder && (
             <p className="m-0 text-sm text-ui-muted sm:self-end">
               {!cart.slot_chosen || !selectedSlot
-                ? "Kies eerst een bezorgmoment."
+                ? t("Kies eerst een bezorgmoment.")
                 : belowMinimum
-                  ? `Voor dit moment is het minimum ${formatEur(selectedSlot.minimum_order)}.`
-                  : "Dit bezorgmoment is niet meer beschikbaar; kies een ander."}
+                  ? t("Voor dit moment is het minimum {amount}.", { amount: formatEur(selectedSlot.minimum_order) })
+                  : t("Dit bezorgmoment is niet meer beschikbaar; kies een ander.")}
             </p>
           )}
         </>
@@ -399,20 +382,16 @@ export default function ListrPicnicCart() {
 
       {confirming && cart && selectedSlot && (
         <ModalOverlay onClose={() => setConfirming(false)} cardClassName="flex w-full max-w-sm flex-col gap-3 rounded-[20px] bg-ui-surface p-5 shadow-lg">
-          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Bestelling plaatsen?</h2>
+          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Bestelling plaatsen?")}</h2>
           <p className="m-0 text-[15px] text-ui-ink-soft">
-            {cart.item_count} producten voor <span className="font-semibold text-ui-ink">{formatEur(cart.checkout_total)}</span>, bezorgd{" "}
+            {cart.item_count}{" "}{t("producten voor")}{" "}<span className="font-semibold text-ui-ink">{formatEur(cart.checkout_total)}</span>{t(", bezorgd")}{" "}
             <span className="font-semibold text-ui-ink">{slotLabel(selectedSlot)}</span>.
           </p>
-          <p className="m-0 text-sm text-ui-muted">
-            Je gaat naar je bank om te betalen (iDEAL). Pas als je de betaling daar goedkeurt, is de bestelling geplaatst.
-          </p>
+          <p className="m-0 text-sm text-ui-muted">{t("Je gaat naar je bank om te betalen (iDEAL). Pas als je de betaling daar goedkeurt, is de bestelling geplaatst.")}</p>
           <div className="mt-1 flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirming(false)} className={secondaryButtonClass}>
-              Annuleren
-            </button>
+            <button type="button" onClick={() => setConfirming(false)} className={secondaryButtonClass}>{t("Annuleren")}</button>
             <button type="button" onClick={() => checkoutMutation.mutate()} disabled={checkoutMutation.isPending} className={`${primaryButtonClass} h-11`}>
-              {checkoutMutation.isPending ? "Bezig…" : "Naar betalen"}
+              {checkoutMutation.isPending ? t("Bezig…") : t("Naar betalen")}
             </button>
           </div>
         </ModalOverlay>

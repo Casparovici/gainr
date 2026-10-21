@@ -76,3 +76,5 @@ class GardenPlant(Base):
         "GardenCareLog", back_populates="plant", cascade="all, delete-orphan", order_by="GardenCareLog.performed_on.desc()"
     )
     care_schedules = relationship("GardenCareSchedule", back_populates="plant", cascade="all, delete-orphan")
+    # Notes about this plant; deleting the plant clears its links, not the notes (docs/adr/0050).
+    notr_notes = relationship("NotrNote", secondary="notr_note_plants", back_populates="plants")

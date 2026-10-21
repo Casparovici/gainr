@@ -122,7 +122,7 @@ def test_clear_checked_removes_only_checked_lines(db_session):
     b = make_item(db_session, "Uien", category)
     grocery_list = listr_list_repo.create_list(db_session, name="Weekboodschappen")
     db_session.commit()
-    line_a = listr_list_repo.create_list_item(
+    listr_list_repo.create_list_item(
         db_session, list_id=grocery_list.id, grocery_item_id=a.id, quantity=Decimal(1), unit="kg", is_checked=True
     )
     line_b = listr_list_repo.create_list_item(
@@ -368,7 +368,7 @@ def test_add_inventory_items_to_a_new_list_at_quantity_one(client, db_session):
 
 def test_a_new_item_starts_at_inventory_count_zero(client, db_session):
     category = make_category(db_session)
-    item = make_item(db_session, "Aardappelen", category)
+    make_item(db_session, "Aardappelen", category)
     db_session.commit()
 
     assert client.get(f"/api/listr/items?category_id={category.id}").json()[0]["inventory_count"] == 0

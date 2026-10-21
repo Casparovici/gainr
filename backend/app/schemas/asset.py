@@ -1,7 +1,9 @@
 import re
+from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 from app.models.asset import DltJudgment
 
@@ -99,3 +101,34 @@ class SymbolLookupOut(BaseModel):
     # "TDIV" is an American fund; the VanEck one is TDIV.AS), which is why every match is shown.
     exact: bool
     matches: list[SymbolMatchOut]
+
+
+class PricePointOut(BaseModel):
+    # An ISO date for a daily close, an ISO moment (UTC, "...Z") for an intraday bar.
+    time: str
+    price: Decimal
+
+
+class PriceChartOut(BaseModel):
+    """One position's price over a range, in the currency it trades in (docs/adr/0053)."""
+
+    range: Literal["1D", "1W", "1M", "YTD", "3Y"]
+    currency: str
+    interval: Literal["intraday", "daily"]
+    points: list[PricePointOut]
+    # What the change is measured from: yesterday's close for 1D, the first close of the range.
+    start_price: Decimal | None
+    end_price: Decimal | None
+    change: Decimal | None
+    change_pct: Decimal | None
+    # 1D was asked for but the provider had no intraday bars: the points are the last week's closes.
+    is_fallback: bool = False
+    # When the last point was traded (UTC), for a live or intraday price; null for a close.
+    as_of: datetime | None = None
+
+    # Naive UTC on the way in; stamped on the way out, so the browser doesn't read it as local time.
+    @field_serializer("as_of")
+    def _as_utc(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return (value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value).isoformat()

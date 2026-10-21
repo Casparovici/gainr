@@ -2,15 +2,20 @@
 pushed off-box via rclone.
 
 Meant to run on a schedule (see deploy/gainr-backup.timer) since this is the single SQLite
-file behind gainr/gripr/listr/gardnr for one user with no other copy of the data anywhere.
+file behind gainr/gripr/listr/gardnr/trainr for one user with no other copy of the data anywhere.
 Uses sqlite3's own backup API rather than `cp`, so a backup taken while the app is mid-write
 is still a consistent snapshot instead of a torn file.
 
 Usage (from backend/):
     python -m scripts.backup_db
+    python -m scripts.backup_db --tag pre-migrate-1a2b3c4 --no-upload   # the deploy, before migrating
+
+A tagged backup is named portfolio-<time>-<tag>.db.gz and pruned with the rest after 14 days.
 """
 
+import argparse
 import gzip
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -68,19 +73,27 @@ def _upload(path: Path) -> str:
     return f"uploaded to {config.BACKUP_RCLONE_REMOTE}"
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Back up portfolio.db once.")
+    parser.add_argument("--tag", help="added to the file name, e.g. pre-migrate-1a2b3c4")
+    parser.add_argument("--no-upload", action="store_true", help="keep it local, skip rclone")
+    args = parser.parse_args(argv)
+    if args.tag is not None and not re.fullmatch(r"[A-Za-z0-9-]{1,40}", args.tag):
+        parser.error("--tag takes letters, digits and dashes only")
+
     BACKUP_DIR.mkdir(mode=0o700, exist_ok=True)
     source = _db_path()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    snapshot_path = BACKUP_DIR / f".portfolio-{stamp}.db.tmp"
-    gz_path = BACKUP_DIR / f"portfolio-{stamp}.db.gz"
+    name = f"portfolio-{stamp}-{args.tag}" if args.tag else f"portfolio-{stamp}"
+    snapshot_path = BACKUP_DIR / f".{name}.db.tmp"
+    gz_path = BACKUP_DIR / f"{name}.db.gz"
 
     _take_snapshot(source, snapshot_path)
     with open(snapshot_path, "rb") as raw, gzip.open(gz_path, "wb") as gz:
         shutil.copyfileobj(raw, gz)
     snapshot_path.unlink()
 
-    upload_status = _upload(gz_path)
+    upload_status = "skipped upload: --no-upload" if args.no_upload else _upload(gz_path)
     removed = _prune_local(KEEP_DAYS)
 
     print(f"Backed up {source} -> {gz_path} ({gz_path.stat().st_size} bytes)")

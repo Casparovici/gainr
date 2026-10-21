@@ -100,7 +100,5 @@ and its index. It also adds the enum value on Postgres, in case the database is 
   arrives later. This is intended: the figure converges on what the period really cost.
 - Linked refunds show up in a Transactions category filter under the expense's category, since
   they carry it. Their badge's tooltip names the expense they came back for.
-- The MCP `add_transaction` tool accepts `refund`, but can't link it. There is no chat tool for
-  looking up an expense's id yet (gripr roadmap #3).
 - The CSV export writes `refund` as the type. There is no CSV *import* of gripr transactions to
   update.

@@ -1,5 +1,6 @@
 import { inputClass, primaryButtonClass } from "../ui/kit";
 import type { usePicnicConnect } from "../../hooks/usePicnicConnect";
+import { t } from "../../i18n";
 
 /** "Connect to Picnic" (login, then the SMS code if Picnic asks for one) -- the not-connected
  * state of every page that needs a live Picnic session. `picnic` is that page's own
@@ -13,9 +14,7 @@ export default function PicnicConnectCard({
 }) {
   if (picnic.status && !picnic.status.configured) {
     return (
-      <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">
-        Picnic is niet ingesteld op deze server (GAINR_PICNIC_EMAIL en GAINR_PICNIC_PASSWORD ontbreken).
-      </div>
+      <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Picnic is niet ingesteld op deze server (GAINR_PICNIC_EMAIL en GAINR_PICNIC_PASSWORD ontbreken).")}</div>
     );
   }
   return (
@@ -29,9 +28,7 @@ export default function PicnicConnectCard({
           }}
           className="flex w-full max-w-xs flex-col gap-2"
         >
-          <label className="text-sm text-ui-muted" htmlFor="picnic-code">
-            Picnic heeft je een sms gestuurd met een code.
-          </label>
+          <label className="text-sm text-ui-muted" htmlFor="picnic-code">{t("Picnic heeft je een sms gestuurd met een code.")}</label>
           <input
             id="picnic-code"
             autoFocus
@@ -41,17 +38,15 @@ export default function PicnicConnectCard({
             placeholder="123456"
             className={inputClass}
           />
-          {picnic.verifyError && <p className="m-0 text-sm text-ui-late">Code niet geaccepteerd, probeer opnieuw.</p>}
-          <button type="submit" disabled={!picnic.code.trim() || picnic.isVerifying} className={primaryButtonClass}>
-            Bevestigen
-          </button>
+          {picnic.verifyError && <p className="m-0 text-sm text-ui-late">{t("Code niet geaccepteerd, probeer opnieuw.")}</p>}
+          <button type="submit" disabled={!picnic.code.trim() || picnic.isVerifying} className={primaryButtonClass}>{t("Bevestigen")}</button>
         </form>
       ) : (
         <button type="button" onClick={picnic.connect} disabled={picnic.isConnecting} className={primaryButtonClass}>
-          {picnic.isConnecting ? "Bezig…" : "Verbinden met Picnic"}
+          {picnic.isConnecting ? t("Bezig…") : t("Verbinden met Picnic")}
         </button>
       )}
-      {picnic.connectError && <p className="m-0 text-sm text-ui-late">Verbinden met Picnic is mislukt. Probeer het later opnieuw.</p>}
+      {picnic.connectError && <p className="m-0 text-sm text-ui-late">{t("Verbinden met Picnic is mislukt. Probeer het later opnieuw.")}</p>}
     </div>
   );
 }

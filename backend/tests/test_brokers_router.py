@@ -35,7 +35,7 @@ def test_status_starts_off_and_unconfigured(client, connection):
     body = client.get("/api/brokers/trading212").json()
 
     assert body == {
-        "configured": False, "enabled": False, "since": None, "portfolio_id": None,
+        "configured": False, "enabled": False, "since": None, "portfolio_id": None, "cashback_account_id": None,
         "last_synced_at": None, "last_error": None, "unmapped": [],
     }
 
@@ -68,7 +68,7 @@ def test_sync_now_reports_what_happened(client, connection, monkeypatch):
 
     body = client.post("/api/brokers/trading212/sync").json()
 
-    assert body == {"booked": 2, "matched": 1, "deposits": 1, "unmapped": [], "problems": ["x"]}
+    assert body == {"booked": 2, "matched": 1, "deposits": 1, "cashbacks": 0, "unmapped": [], "problems": ["x"]}
 
 
 def test_an_asset_takes_an_isin_and_rejects_one_that_isnt(client, db_session):
@@ -80,3 +80,17 @@ def test_an_asset_takes_an_isin_and_rejects_one_that_isnt(client, db_session):
     body = client.put(f"/api/assets/{asset.id}", json={"isin": " ie000j80jtl1 "}).json()
     assert body["isin"] == "IE000J80JTL1"
     assert client.put(f"/api/assets/{asset.id}", json={"isin": ""}).json()["isin"] is None
+
+
+def test_the_cashback_account_is_set_kept_and_cleared(client, db_session, connection, portfolio_id):
+    from app.models.gripr_account import GriprAccount, GriprAccountType, GriprBalanceMode
+
+    account = GriprAccount(name="Cashback", type=GriprAccountType.SAVINGS, balance_mode=GriprBalanceMode.TRANSACTIONAL)
+    db_session.add(account)
+    db_session.flush()
+    on = {"enabled": True, "portfolio_id": portfolio_id}
+
+    assert client.put("/api/brokers/trading212", json={**on, "cashback_account_id": 999}).status_code == 404
+    assert client.put("/api/brokers/trading212", json={**on, "cashback_account_id": account.id}).json()["cashback_account_id"] == account.id
+    assert client.put("/api/brokers/trading212", json=on).json()["cashback_account_id"] == account.id  # left out: kept
+    assert client.put("/api/brokers/trading212", json={**on, "cashback_account_id": None}).json()["cashback_account_id"] is None

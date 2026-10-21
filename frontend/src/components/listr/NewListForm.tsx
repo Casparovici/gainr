@@ -1,12 +1,13 @@
 import { useState } from "react";
 
 import ModalOverlay from "../ModalOverlay";
+import { t } from "../../i18n";
 
 const inputClass =
   "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
 export default function NewListForm({
-  title = "Nieuwe lijst",
+  title = t("Nieuwe lijst"),
   initialName = "",
   isSubmitting,
   onCancel,
@@ -31,13 +32,13 @@ export default function NewListForm({
         className="mt-4 flex flex-col gap-3"
       >
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Naam</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Naam")}</span>
           <input
             required
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Weekboodschappen, BBQ, …"
+            placeholder={t("Weekboodschappen, BBQ, …")}
             className={inputClass}
           />
         </label>
@@ -46,15 +47,13 @@ export default function NewListForm({
             type="button"
             onClick={onCancel}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Annuleren
-          </button>
+          >{t("Annuleren")}</button>
           <button
             type="submit"
             disabled={isSubmitting}
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
-            {isSubmitting ? "Bezig…" : "Opslaan"}
+            {isSubmitting ? t("Bezig…") : t("Opslaan")}
           </button>
         </div>
       </form>

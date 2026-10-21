@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh gainr's live quotes once an hour
+
+[Timer]
+OnCalendar=hourly
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -6,10 +6,12 @@ import {
   formatCurrency,
   formatDate,
   formatEur,
+  formatMonths,
   formatPct,
   formatQuantity,
   formatRatio,
   formatRelativeTime,
+  formatSignedEur,
   formatWeight,
   numberToDecimalInput,
   parseDecimalInput,
@@ -266,5 +268,26 @@ describe("formatRelativeTime", () => {
 
   it("returns an empty string for an unparseable timestamp instead of 'NaN ago'", () => {
     expect(formatRelativeTime("not a date")).toBe("");
+  });
+});
+
+describe("formatMonths", () => {
+  it("shows a duration with one decimal and the right unit", () => {
+    expect(formatMonths("3.3")).toMatch(/^3[.,]3 months$/);
+    expect(formatMonths(1)).toBe("1 month");
+    expect(formatMonths(12.04)).toMatch(/^12 months$/);
+  });
+
+  it("shows a dash when there is nothing to divide by", () => {
+    expect(formatMonths(null)).toBe("—");
+  });
+});
+
+describe("formatSignedEur", () => {
+  it("signs a move both ways and leaves zero and missing plain", () => {
+    expect(formatSignedEur("314.2")).toMatch(/^\+€\s?314,20$/);
+    expect(formatSignedEur(-12)).toMatch(/^−€\s?12,00$/);
+    expect(formatSignedEur(0)).toMatch(/^€\s?0,00$/);
+    expect(formatSignedEur(null)).toBe("—");
   });
 });

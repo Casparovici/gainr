@@ -6,9 +6,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { listrApi } from "../../api/listrClient";
 import NewListForm from "../../components/listr/NewListForm";
 import { IconChevronRight, IconPlus, ModuleTopRow, PageTitle, dashedButtonClass, secondaryButtonClass } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
+import { dateLocale, t, tp } from "../../i18n";
 
 function formatUpdatedAt(iso: string): string {
-  return new Date(iso).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString(dateLocale("nl-NL"), { day: "numeric", month: "short", year: "numeric" });
 }
 
 export default function ListrLists() {
@@ -17,7 +19,7 @@ export default function ListrLists() {
   const [creating, setCreating] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
 
-  const { data: lists, isLoading } = useQuery({
+  const { data: lists, isLoading, isError, refetch } = useQuery({
     queryKey: ["listr-lists", showArchived],
     queryFn: () => listrApi.listLists(showArchived),
   });
@@ -59,32 +61,30 @@ export default function ListrLists() {
       <ModuleTopRow>
         {picnicStatusQuery.data?.configured && (
           <>
-            <Link to="/listr/winkelwagen" aria-label="Picnic-winkelwagen" className={`${secondaryButtonClass} no-underline`}>
+            <Link to="/listr/winkelwagen" aria-label={t("Picnic-winkelwagen")} className={`${secondaryButtonClass} no-underline`}>
               <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={2} />
-              <span className="hidden sm:inline">Winkelwagen</span>
+              <span className="hidden sm:inline">{t("Winkelwagen")}</span>
             </Link>
-            <Link to="/listr/bestellingen" aria-label="Picnic-bestellingen" className={`${secondaryButtonClass} no-underline`}>
+            <Link to="/listr/bestellingen" aria-label={t("Picnic-bestellingen")} className={`${secondaryButtonClass} no-underline`}>
               <ReceiptEuro className="h-[18px] w-[18px]" strokeWidth={2} />
-              <span className="hidden sm:inline">Bestellingen</span>
+              <span className="hidden sm:inline">{t("Bestellingen")}</span>
             </Link>
           </>
         )}
-        <label className={`${secondaryButtonClass} cursor-pointer text-sm font-medium`} title="Toon gearchiveerde lijsten">
+        <label className={`${secondaryButtonClass} cursor-pointer text-sm font-medium`} title={t("Toon gearchiveerde lijsten")}>
           <input type="checkbox" className="h-4 w-4 accent-ui-brand" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          <Archive className="h-4 w-4 sm:hidden" strokeWidth={2} aria-label="Gearchiveerd" />
-          <span className="hidden sm:inline">Gearchiveerd</span>
+          <Archive className="h-4 w-4 sm:hidden" strokeWidth={2} aria-label={t("Gearchiveerd")} />
+          <span className="hidden sm:inline">{t("Gearchiveerd")}</span>
         </label>
       </ModuleTopRow>
-      <PageTitle subtitle={lists && lists.length > 0 ? `${lists.length} ${lists.length === 1 ? "lijst" : "lijsten"} · ${open} nog te halen` : undefined}>
-        Lijsten
-      </PageTitle>
+      <PageTitle subtitle={lists && lists.length > 0 ? tp(lists.length, "{n} lijst · {open} nog te halen", "{n} lijsten · {open} nog te halen", { open }) : undefined}>{t("Lijsten")}</PageTitle>
 
       {isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
+      ) : isError ? (
+        <QueryError className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center" message={t("Lijsten laden mislukt.")} onRetry={() => refetch()} retryLabel={t("Opnieuw")} />
       ) : !lists || lists.length === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">
-          Nog geen lijsten — maak er hieronder een aan om te beginnen.
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">{t("Nog geen lijsten — maak er hieronder een aan om te beginnen.")}</div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {lists.map((list) => (
@@ -102,13 +102,13 @@ export default function ListrLists() {
                 <div className="flex min-w-0 flex-grow flex-col gap-0.5">
                   <span className="truncate font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{list.name}</span>
                   <span className="text-sm text-ui-muted">
-                    {list.item_count === 0 ? "Nog leeg" : `${list.checked_count} / ${list.item_count} afgevinkt`}
+                    {list.item_count === 0 ? t("Nog leeg") : t("{checked} / {total} afgevinkt", { checked: list.checked_count, total: list.item_count })}
                     {" · "}
                     {formatUpdatedAt(list.updated_at)}
                   </span>
                 </div>
                 {list.is_archived ? (
-                  <span className="shrink-0 rounded-full bg-ui-tile px-2.5 py-1 text-xs font-semibold text-ui-muted">gearchiveerd</span>
+                  <span className="shrink-0 rounded-full bg-ui-tile px-2.5 py-1 text-xs font-semibold text-ui-muted">{t("gearchiveerd")}</span>
                 ) : (
                   <span className="shrink-0 text-ui-muted">
                     <IconChevronRight size={20} />
@@ -127,17 +127,15 @@ export default function ListrLists() {
                 <div className="flex gap-4">
                   <button
                     type="button"
-                    onClick={() => duplicateMutation.mutate({ id: list.id, name: `${list.name} (kopie)` })}
+                    onClick={() => duplicateMutation.mutate({ id: list.id, name: t("{name} (kopie)", { name: list.name }) })}
                     className="py-1 font-medium hover:text-ui-ink"
-                  >
-                    Dupliceren
-                  </button>
+                  >{t("Dupliceren")}</button>
                   <button
                     type="button"
                     onClick={() => archiveMutation.mutate({ id: list.id, is_archived: !list.is_archived })}
                     className="py-1 hover:text-ui-ink"
-                    title={list.is_archived ? "Herstellen" : "Archiveren"}
-                    aria-label={list.is_archived ? "Herstellen" : "Archiveren"}
+                    title={list.is_archived ? t("Herstellen") : t("Archiveren")}
+                    aria-label={list.is_archived ? t("Herstellen") : t("Archiveren")}
                   >
                     {list.is_archived ? <ArchiveRestore className="h-4 w-4" strokeWidth={2} /> : <Archive className="h-4 w-4" strokeWidth={2} />}
                   </button>
@@ -145,13 +143,13 @@ export default function ListrLists() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm(`Lijst "${list.name}" verwijderen? Dit kan niet ongedaan worden gemaakt.`)) {
+                    if (confirm(t("Lijst \"{name}\" verwijderen? Dit kan niet ongedaan worden gemaakt.", { name: list.name }))) {
                       deleteMutation.mutate(list.id);
                     }
                   }}
                   className="py-1 text-ui-late"
-                  title="Verwijderen"
-                  aria-label="Verwijderen"
+                  title={t("Verwijderen")}
+                  aria-label={t("Verwijderen")}
                 >
                   <Trash2 className="h-4 w-4" strokeWidth={2} />
                 </button>
@@ -162,9 +160,7 @@ export default function ListrLists() {
       )}
 
       <button type="button" onClick={() => setCreating(true)} className={dashedButtonClass}>
-        <IconPlus size={20} />
-        Nieuwe lijst
-      </button>
+        <IconPlus size={20} />{t("Nieuwe lijst")}</button>
 
       {creating && (
         <NewListForm

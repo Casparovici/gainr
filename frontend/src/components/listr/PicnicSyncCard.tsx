@@ -6,6 +6,7 @@ import { listrApi } from "../../api/listrClient";
 import type { ListrPicnicSyncSettingsInput } from "../../api/listrTypes";
 import { todayIsoDate } from "../../utils/format";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "../ui/kit";
+import { dateLocale, t, tp } from "../../i18n";
 
 // Labels above are small caps; the controls themselves read as plain text.
 const controlClass = `${inputClass} font-normal normal-case tracking-normal`;
@@ -42,30 +43,34 @@ export default function PicnicSyncCard() {
     onSuccess: (saved) => {
       const { last_synced_at: _lastSynced, ...rest } = saved;
       setDraft(rest);
-      setFeedback(saved.enabled ? "Opgeslagen." : "Uitgeschakeld.");
+      setFeedback(saved.enabled ? t("Opgeslagen.") : t("Uitgeschakeld."));
       refreshAfterSync();
     },
-    onError: () => setFeedback("Opslaan is mislukt."),
+    onError: () => setFeedback(t("Opslaan is mislukt.")),
   });
   const syncMutation = useMutation({
     mutationFn: () => listrApi.runPicnicSync(),
     onSuccess: (r) => {
       setFeedback(
         r.deliveries === 0
-          ? "Geen nieuwe leveringen."
-          : `${r.deliveries} ${r.deliveries === 1 ? "levering" : "leveringen"} verwerkt: ${r.orders_booked} geboekt, ` +
-              `${r.orders_matched} al geboekt, ${r.items_restocked} op voorraad.`,
+          ? t("Geen nieuwe leveringen.")
+          : tp(
+              r.deliveries,
+              "{n} levering verwerkt: {booked} geboekt, {matched} al geboekt, {restocked} op voorraad.",
+              "{n} leveringen verwerkt: {booked} geboekt, {matched} al geboekt, {restocked} op voorraad.",
+              { booked: r.orders_booked, matched: r.orders_matched, restocked: r.items_restocked },
+            ),
       );
       refreshAfterSync();
     },
-    onError: () => setFeedback("Verwerken is mislukt. Is Picnic nog verbonden?"),
+    onError: () => setFeedback(t("Verwerken is mislukt. Is Picnic nog verbonden?")),
   });
 
   if (settingsQuery.isError) {
-    return <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-sm font-semibold text-ui-late">Instellingen laden is mislukt.</div>;
+    return <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-sm font-semibold text-ui-late">{t("Instellingen laden is mislukt.")}</div>;
   }
   if (!draft) {
-    return <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>;
+    return <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>;
   }
 
   const accounts = (accountsQuery.data ?? []).filter((a) => !a.is_archived);
@@ -91,12 +96,8 @@ export default function PicnicSyncCard() {
     <section className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
-          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Automatisch verwerken</h2>
-          <p className="m-0 text-sm text-ui-ink-soft">
-            Een bezorgde bestelling wordt een uitgave in gripr (wat Picnic afschrijft, met statiegeld), en producten die je
-            in Voorraad bijhoudt worden aangevuld. Al zelf geboekt? Een uitgave van precies dat bedrag op die rekening, rond
-            de besteldatum, wordt herkend en niet dubbel geboekt.
-          </p>
+          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Automatisch verwerken")}</h2>
+          <p className="m-0 text-sm text-ui-ink-soft">{t("Een bezorgde bestelling wordt een uitgave in gripr (wat Picnic afschrijft, met statiegeld), en producten die je in Voorraad bijhoudt worden aangevuld. Al zelf geboekt? Een uitgave van precies dat bedrag op die rekening, rond de besteldatum, wordt herkend en niet dubbel geboekt.")}</p>
         </div>
         <label className="flex shrink-0 cursor-pointer items-center gap-2 pt-1 text-sm font-semibold text-ui-ink">
           <input
@@ -104,21 +105,17 @@ export default function PicnicSyncCard() {
             className="h-5 w-5 accent-ui-brand"
             checked={draft.enabled}
             onChange={(e) => set({ enabled: e.target.checked, since: draft.since ?? (e.target.checked ? todayIsoDate() : null) })}
-          />
-          Aan
-        </label>
+          />{t("Aan")}</label>
       </div>
 
       {draft.enabled && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">
-            Rekening
-            <select
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">{t("Rekening")}<select
               className={controlClass}
               value={draft.gripr_account_id ?? ""}
               onChange={(e) => set({ gripr_account_id: e.target.value ? Number(e.target.value) : null })}
             >
-              <option value="">Niet boeken in gripr</option>
+              <option value="">{t("Niet boeken in gripr")}</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -126,14 +123,12 @@ export default function PicnicSyncCard() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">
-            Categorie
-            <select
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">{t("Categorie")}<select
               className={controlClass}
               value={draft.gripr_category_id ?? ""}
               onChange={(e) => set({ gripr_category_id: e.target.value ? Number(e.target.value) : null })}
             >
-              <option value="">Kies een categorie</option>
+              <option value="">{t("Kies een categorie")}</option>
               {expenseCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}
@@ -141,9 +136,7 @@ export default function PicnicSyncCard() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">
-            Leveringen vanaf
-            <input
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted">{t("Leveringen vanaf")}<input
               type="date"
               className={controlClass}
               value={draft.since ?? ""}
@@ -154,7 +147,7 @@ export default function PicnicSyncCard() {
         </div>
       )}
       {draft.enabled && (draft.gripr_account_id === null || draft.gripr_category_id === null) && (
-        <p className="m-0 text-xs text-ui-muted">Zonder rekening en categorie wordt alleen Voorraad aangevuld.</p>
+        <p className="m-0 text-xs text-ui-muted">{t("Zonder rekening en categorie wordt alleen Voorraad aangevuld.")}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -164,16 +157,15 @@ export default function PicnicSyncCard() {
           disabled={!dirty || saveMutation.isPending}
           className={`${primaryButtonClass} h-11`}
         >
-          {saveMutation.isPending ? "Opslaan…" : "Opslaan"}
+          {saveMutation.isPending ? t("Opslaan…") : t("Opslaan")}
         </button>
         {saved?.enabled && (
           <button type="button" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending || dirty} className={secondaryButtonClass}>
-            {syncMutation.isPending ? "Bezig…" : "Nu verwerken"}
+            {syncMutation.isPending ? t("Bezig…") : t("Nu verwerken")}
           </button>
         )}
         {saved?.last_synced_at && (
-          <span className="text-xs text-ui-muted">
-            Laatst: {new Date(saved.last_synced_at).toLocaleString("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+          <span className="text-xs text-ui-muted">{t("Laatst:")}{" "}{new Date(saved.last_synced_at).toLocaleString(dateLocale("nl-NL"), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
           </span>
         )}
       </div>

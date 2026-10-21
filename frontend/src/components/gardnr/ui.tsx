@@ -5,6 +5,7 @@
 import type { GardenAreaDetail, GardenPlantListRow, GardenPlantMarker, GardenZone } from "../../api/gardnrTypes";
 import { todayLocalISO } from "../../utils/gardnr";
 import { StatusChip, type DueState } from "../ui/kit";
+import { msg, t } from "../../i18n";
 
 export * from "../ui/kit";
 export { ModuleTopRow as GardnrTopRow } from "../ui/kit";
@@ -13,11 +14,11 @@ export { ModuleTopRow as GardnrTopRow } from "../ui/kit";
 
 /** A garden's chips: what's overdue and what's due today, or that it's all on schedule. */
 export function AreaStatusChips({ late, today }: { late: number; today: number }) {
-  if (late === 0 && today === 0) return <StatusChip kind="ok">Op schema</StatusChip>;
+  if (late === 0 && today === 0) return <StatusChip kind="ok">{t("Op schema")}</StatusChip>;
   return (
     <>
-      {late > 0 && <StatusChip kind="late">{late} te laat</StatusChip>}
-      {today > 0 && <StatusChip kind="today">{today} vandaag</StatusChip>}
+      {late > 0 && <StatusChip kind="late">{late}{" "}{t("te laat")}</StatusChip>}
+      {today > 0 && <StatusChip kind="today">{today}{" "}{t("vandaag")}</StatusChip>}
     </>
   );
 }
@@ -62,12 +63,12 @@ export function taskCounts(plants: GardenPlantListRow[], today: string = todayLo
 
 /** The design's six zone colours, in its order. */
 export const ZONE_PALETTE: { color: string; label: string }[] = [
-  { color: "#CFE3B8", label: "gazon" },
-  { color: "#E6D6BF", label: "border" },
-  { color: "#D9C5A2", label: "aarde" },
-  { color: "#DAD6CC", label: "tegels" },
-  { color: "#BCD8DF", label: "water" },
-  { color: "#EBCFD8", label: "bloemen" },
+  { color: "#CFE3B8", label: msg("gazon") },
+  { color: "#E6D6BF", label: msg("border") },
+  { color: "#D9C5A2", label: msg("aarde") },
+  { color: "#DAD6CC", label: msg("tegels") },
+  { color: "#BCD8DF", label: msg("water") },
+  { color: "#EBCFD8", label: msg("bloemen") },
 ];
 export const DEFAULT_ZONE_COLOR = ZONE_PALETTE[0].color;
 

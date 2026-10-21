@@ -68,3 +68,10 @@ affected rows before the recipe itself is deleted.
 - The popularity ranking is a live aggregate query, not a maintained counter — correct by
   construction (nothing to keep in sync) at the cost of a `GROUP BY` over the meal-plan table,
   which is fine at this app's single-user scale.
+
+## Addendum: moving a planned day
+
+`POST /api/listr/meal-plan/{date}/move` re-dates the row in place (`{"to": date}`), so its recipe,
+note, cooked flag and `leftover_consumed` travel with it and a leftover's meal count needs no
+refund-and-redo. The target must be free: a planned target answers 409 rather than being replaced
+or swapped, since silently dropping a planned recipe is the worse surprise. No schema change.

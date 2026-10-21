@@ -29,6 +29,14 @@ def get_by_mealie_id(db: Session, mealie_id: str) -> ListrRecipe | None:
     return db.execute(select(ListrRecipe).where(ListrRecipe.mealie_id == mealie_id)).scalar_one_or_none()
 
 
+def get_by_source_urls(db: Session, urls: list[str]) -> dict[str, ListrRecipe]:
+    """source_url -> recipe, for the recipes planned from briefr suggestions with these pages."""
+    if not urls:
+        return {}
+    rows = db.execute(select(ListrRecipe).where(ListrRecipe.source_url.in_(urls))).scalars().all()
+    return {recipe.source_url: recipe for recipe in rows if recipe.source_url is not None}
+
+
 def mealie_sources(db: Session) -> dict[str, str | None]:
     """mealie_id -> the Mealie last-changed stamp stored at import, for every imported recipe
     (archived ones included -- archiving in listr doesn't make it a new recipe in Mealie)."""
@@ -50,6 +58,11 @@ def update_recipe(db: Session, recipe: ListrRecipe, **fields) -> ListrRecipe:
         setattr(recipe, key, value)
     db.flush()
     return recipe
+
+
+def delete_recipe(db: Session, recipe: ListrRecipe) -> None:
+    db.delete(recipe)  # its ingredients and category links go with it (model relationships)
+    db.flush()
 
 
 # -- ingredients ----------------------------------------------------------------------------

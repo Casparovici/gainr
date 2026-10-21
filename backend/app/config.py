@@ -66,3 +66,9 @@ T212_API_SECRET = os.environ.get("GAINR_T212_API_SECRET")
 # for an rclone remote named "gdrive". Unset by default, so a dev machine without rclone
 # configured still takes local backups, it just doesn't push them off-box.
 BACKUP_RCLONE_REMOTE = os.environ.get("GAINR_BACKUP_RCLONE_REMOTE")
+
+# The checkout of the private agents repository (docs/adr/0044-briefr-agent-reports.md) that
+# scripts/import_briefr_reports.py pulls and reads briefr's reports from, e.g.
+# "/var/lib/gainr/agents" on the server. Unset by default, so a dev machine without the repository
+# imports nothing unless given a path.
+BRIEFR_REPO_DIR = os.environ.get("GAINR_BRIEFR_REPO_DIR")

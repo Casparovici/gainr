@@ -17,6 +17,37 @@ body {
   color-scheme: dark;
 }
 
+/* Dropdowns. A bare <select> draws the platform's own arrow and, on Android, a flat box -- the
+ * stock look. Drop the native chrome and give every closed select the same chevron, room for it
+ * on the right, a pointer cursor and a soft hover/disabled state. One element rule rather than a
+ * class on each of the ~55 selects: the colours, border and radius still come from each
+ * component's own className, only the arrow is ours. It stays a real <select> -- the opened list
+ * is the system picker, which keeps keyboard, screen-reader and form validation for free. The
+ * chevron is a background image, so it can't use currentColor: one stroke per colour scheme.
+ * The padding-right sits on a (0,2,1) selector so it wins over a component's `px-*` utility. */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7.5 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dark select:not([multiple]):not([size]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7.5 5 5 5-5'/%3E%3C/svg%3E");
+}
+select:not([multiple]):not([size]):not(:focus):not(:disabled):hover {
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+}
+select:not([multiple]):not([size]):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* Light mode, retouched one notch darker the same way dark mode is a full override sheet: a
  * plain (non-`.dark`-scoped) rule per utility class, not a `dark:`-style variant added to every
  * component. Higher-specificity `.dark X` rules below still win when `.dark` is present, so
@@ -196,7 +227,7 @@ body {
 
 /* ---------------------------------------------------------------------------------------------
  * Per-module accent -- each module carries its brand colour from the logo kit in
- * frontend/design/ (gainr indigo, gripr gold, listr terracotta, gardnr green). Scoped under a
+ * frontend/design/ (gainr indigo, gripr gold, listr terracotta, gardnr green, trainr blue, taskr berry, briefr teal, notr olive). Scoped under a
  * `.module-<key>` class App.tsx puts on the root wrapper -- the exact same "override sheet
  * keyed to an ancestor class" technique as dark mode above, not a new mechanism.
  *
@@ -217,12 +248,20 @@ body {
   --brand-gripr: #b7790a;
   --brand-listr: #d4502a;
   --brand-gardnr: #2f7d3a;
+  --brand-trainr: #1769aa;
+  --brand-taskr: #a3307a;
+  --brand-briefr: #0b7a75;
+  --brand-notr: #5e7f12;
 }
 .dark {
   --brand-gainr: #9d9af2;
   --brand-gripr: #edb94a;
   --brand-listr: #f08a66;
   --brand-gardnr: #7fc486;
+  --brand-trainr: #7db8e8;
+  --brand-taskr: #efa2d2;
+  --brand-briefr: #6fd3cb;
+  --brand-notr: #b7d86a;
 }
 
 /* The active tab in the header strip and the mobile bottom nav. Slate by default (a module
@@ -238,7 +277,12 @@ body {
 .module-gainr .nav-active,
 .module-gripr .nav-active,
 .module-listr .nav-active,
-.module-gardnr .nav-active {
+.module-gardnr .nav-active,
+.module-trainr .nav-active,
+.module-taskr .nav-active,
+.module-briefr .nav-active,
+.module-notr .nav-active,
+.module-vandaag .nav-active {
   background-color: var(--nav-active-bg);
   color: var(--nav-active-fg);
 }
@@ -336,7 +380,7 @@ body {
   --md-on-error-container-rgb: 255 218 214;
 }
 
-/* --- gainr + gripr + gardnr + listr: the page kit (gardnr's redesign, claude.ai design "gardnr · Tuinen", Sept
+/* --- gainr + gripr + gardnr + listr + trainr + taskr + briefr + notr: the page kit (gardnr's redesign, claude.ai design "gardnr · Tuinen", Sept
  * 2026, carried to listr, gainr and gripr) ------------------------------------------------------------------------
  * These modules share one design language: a warm off-white canvas, white cards, hairline warm
  * borders, Instrument Sans for text and Bricolage Grotesque (`font-display`) for headings. Every
@@ -347,7 +391,12 @@ body {
 .module-gainr,
 .module-gripr,
 .module-gardnr,
-.module-listr {
+.module-listr,
+.module-trainr,
+.module-taskr,
+.module-briefr,
+.module-notr,
+.module-vandaag {
   --ui-bg: #F6F4EF; /* page canvas */
   --ui-bg-rgb: 246 244 239;
   --ui-surface: #FFFFFF; /* cards, sheets, bottom bar */
@@ -379,14 +428,19 @@ body {
   --ui-today-dot: #D69A1B; /* due-today markers */
   --ui-today-dot-rgb: 214 154 27;
   background-color: rgb(var(--ui-bg-rgb));
-  font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-text);
   --nav-active-bg: rgb(var(--ui-brand-soft-rgb));
   --nav-active-fg: rgb(var(--ui-brand-strong-rgb));
 }
 .dark .module-gainr,
 .dark .module-gripr,
 .dark .module-gardnr,
-.dark .module-listr {
+.dark .module-listr,
+.dark .module-trainr,
+.dark .module-taskr,
+.dark .module-briefr,
+.dark .module-notr,
+.dark .module-vandaag {
   --ui-bg: #141512;
   --ui-bg-rgb: 20 21 18;
   --ui-surface: #1D1F1A;
@@ -558,10 +612,177 @@ body {
   --ui-late-line: #6E2A25;
   --ui-late-line-rgb: 110 42 37;
 }
+.module-trainr {
+  --ui-brand: #1769AA; /* brand blue: primary buttons, active states */
+  --ui-brand-rgb: 23 105 170;
+  --ui-brand-strong: #0F4C7E; /* blue text, selection outlines */
+  --ui-brand-strong-rgb: 15 76 126;
+  --ui-brand-soft: #DDEBF7; /* active nav pill, soft blue fills */
+  --ui-brand-soft-rgb: 221 235 247;
+  --ui-late: #B3261E; /* errors, destructive */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-trainr {
+  --ui-brand: #7DB8E8;
+  --ui-brand-rgb: 125 184 232;
+  --ui-brand-strong: #B3D6F3;
+  --ui-brand-strong-rgb: 179 214 243;
+  --ui-brand-soft: #1C3347;
+  --ui-brand-soft-rgb: 28 51 71;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-taskr {
+  --ui-brand: #A3307A; /* brand berry: primary buttons, active states */
+  --ui-brand-rgb: 163 48 122;
+  --ui-brand-strong: #74195A; /* berry text, selection outlines */
+  --ui-brand-strong-rgb: 116 25 90;
+  --ui-brand-soft: #F8E1EF; /* active nav pill, soft berry fills */
+  --ui-brand-soft-rgb: 248 225 239;
+  --ui-late: #B3261E; /* errors, destructive, overdue */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-taskr {
+  --ui-brand: #EFA2D2;
+  --ui-brand-rgb: 239 162 210;
+  --ui-brand-strong: #F7CDE7;
+  --ui-brand-strong-rgb: 247 205 231;
+  --ui-brand-soft: #46203A;
+  --ui-brand-soft-rgb: 70 32 58;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+/* Vandaag, the app's start screen, belongs to no single module: its "brand" is the ink itself,
+ * so nothing on it reads as one module's colour. */
+.module-vandaag {
+  --ui-brand: #2E2B33;
+  --ui-brand-rgb: 46 43 51;
+  --ui-brand-strong: #1B1A1F;
+  --ui-brand-strong-rgb: 27 26 31;
+  --ui-brand-soft: #E9E6E1;
+  --ui-brand-soft-rgb: 233 230 225;
+  --ui-late: #B3261E;
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2;
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510;
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2;
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-vandaag {
+  --ui-brand: #E6E3DD;
+  --ui-brand-rgb: 230 227 221;
+  --ui-brand-strong: #F5F3EF;
+  --ui-brand-strong-rgb: 245 243 239;
+  --ui-brand-soft: #34313A;
+  --ui-brand-soft-rgb: 52 49 58;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-briefr {
+  --ui-brand: #0B7A75; /* brand teal: primary buttons, active states */
+  --ui-brand-rgb: 11 122 117;
+  --ui-brand-strong: #075652; /* teal text, selection outlines */
+  --ui-brand-strong-rgb: 7 86 82;
+  --ui-brand-soft: #D8F1EE; /* active nav pill, soft teal fills */
+  --ui-brand-soft-rgb: 216 241 238;
+  --ui-late: #B3261E; /* errors, destructive, "act" */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-briefr {
+  --ui-brand: #6FD3CB;
+  --ui-brand-rgb: 111 211 203;
+  --ui-brand-strong: #A6E8E1;
+  --ui-brand-strong-rgb: 166 232 225;
+  --ui-brand-soft: #12302E;
+  --ui-brand-soft-rgb: 18 48 46;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
+.module-notr {
+  --ui-brand: #5E7F12; /* brand olive: primary buttons, active states */
+  --ui-brand-rgb: 94 127 18;
+  --ui-brand-strong: #3F5809; /* olive text, selection outlines */
+  --ui-brand-strong-rgb: 63 88 9;
+  --ui-brand-soft: #E9F3CF; /* active nav pill, soft olive fills */
+  --ui-brand-soft-rgb: 233 243 207;
+  --ui-late: #B3261E; /* errors, destructive, "act" */
+  --ui-late-rgb: 179 38 30;
+  --ui-late-soft: #FCE4E2; /* error backgrounds */
+  --ui-late-soft-rgb: 252 228 226;
+  --ui-late-ink: #7A1510; /* text on error backgrounds */
+  --ui-late-ink-rgb: 122 21 16;
+  --ui-late-line: #F2C6C2; /* destructive button borders */
+  --ui-late-line-rgb: 242 198 194;
+}
+.dark .module-notr {
+  --ui-brand: #B7D86A;
+  --ui-brand-rgb: 183 216 106;
+  --ui-brand-strong: #D6EBA3;
+  --ui-brand-strong-rgb: 214 235 163;
+  --ui-brand-soft: #2A3410;
+  --ui-brand-soft-rgb: 42 52 16;
+  --ui-late: #F2B8B5;
+  --ui-late-rgb: 242 184 181;
+  --ui-late-soft: #410E0B;
+  --ui-late-soft-rgb: 65 14 11;
+  --ui-late-ink: #F9DEDC;
+  --ui-late-ink-rgb: 249 222 220;
+  --ui-late-line: #6E2A25;
+  --ui-late-line-rgb: 110 42 37;
+}
 .module-gainr .app-header,
 .module-gripr .app-header,
 .module-gardnr .app-header,
-.module-listr .app-header {
+.module-listr .app-header,
+.module-trainr .app-header,
+.module-taskr .app-header,
+.module-briefr .app-header,
+.module-notr .app-header,
+.module-vandaag .app-header {
   background-color: rgb(var(--ui-surface-rgb));
   border-color: rgb(var(--ui-border-rgb));
 }
@@ -572,59 +793,71 @@ body {
  * class" technique as dark mode above -- so they wear the same palette, in both themes, and a
  * slate-900 primary button becomes the module's brand colour. Corners get the kit's softer
  * radii too. */
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .bg-white { background-color: rgb(var(--ui-surface-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-50, .bg-slate-100, .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .bg-white { background-color: rgb(var(--ui-surface-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.bg-slate-50, .bg-slate-100, .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover) {
   background-color: rgb(var(--ui-tile-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-200, .hover\:bg-slate-200:hover) { background-color: rgb(var(--ui-border-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-slate-900, .hover\:bg-slate-900:hover) { background-color: rgb(var(--ui-brand-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .hover\:bg-slate-800:hover { background-color: rgb(var(--ui-brand-strong-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-50, .border-slate-100, .border-slate-200) { border-color: rgb(var(--ui-border-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-300, .border-slate-400, .hover\:border-slate-300:hover, .hover\:border-slate-400:hover) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.bg-slate-200, .hover\:bg-slate-200:hover) { background-color: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.bg-slate-900, .hover\:bg-slate-900:hover) { background-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .hover\:bg-slate-800:hover { background-color: rgb(var(--ui-brand-strong-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.border-slate-50, .border-slate-100, .border-slate-200) { border-color: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.border-slate-300, .border-slate-400, .hover\:border-slate-300:hover, .hover\:border-slate-400:hover) {
   border-color: rgb(var(--ui-line-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.border-slate-500, .border-slate-900) { border-color: rgb(var(--ui-brand-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.divide-slate-50, .divide-slate-100, .divide-slate-200) > :not([hidden]) ~ :not([hidden]) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.border-slate-500, .border-slate-900) { border-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.divide-slate-50, .divide-slate-100, .divide-slate-200) > :not([hidden]) ~ :not([hidden]) {
   border-color: rgb(var(--ui-border-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-900, .text-slate-800, .text-slate-700, .hover\:text-slate-900:hover, .hover\:text-slate-700:hover) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-slate-900, .text-slate-800, .text-slate-700, .hover\:text-slate-900:hover, .hover\:text-slate-700:hover) {
   color: rgb(var(--ui-ink-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-600, .hover\:text-slate-600:hover) { color: rgb(var(--ui-ink-soft-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-500, .text-slate-400, .hover\:text-slate-500:hover, .group:hover .group-hover\:text-slate-500) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-slate-600, .hover\:text-slate-600:hover) { color: rgb(var(--ui-ink-soft-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-slate-500, .text-slate-400, .hover\:text-slate-500:hover, .group:hover .group-hover\:text-slate-500) {
   color: rgb(var(--ui-muted-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-slate-300, .disabled\:text-slate-300:disabled) { color: rgb(var(--ui-faint-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-red-600, .text-red-500, .text-red-400, .hover\:text-red-600:hover, .hover\:text-red-700:hover) {
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-slate-300, .disabled\:text-slate-300:disabled) { color: rgb(var(--ui-faint-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-red-600, .text-red-500, .text-red-400, .hover\:text-red-600:hover, .hover\:text-red-700:hover) {
   color: rgb(var(--ui-late-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.text-blue-600, .text-blue-700, .hover\:text-blue-700:hover, .hover\:text-blue-800:hover) { color: rgb(var(--ui-brand-strong-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-red-50, .hover\:bg-red-50:hover) { background-color: rgb(var(--ui-late-soft-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .ring-slate-900 { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.focus\:border-slate-500:focus, .focus\:border-slate-400:focus) { border-color: rgb(var(--ui-brand-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.focus\:ring-slate-500:focus, .focus\:ring-slate-400:focus) { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.text-blue-600, .text-blue-700, .hover\:text-blue-700:hover, .hover\:text-blue-800:hover) { color: rgb(var(--ui-brand-strong-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.bg-red-50, .hover\:bg-red-50:hover) { background-color: rgb(var(--ui-late-soft-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .ring-slate-900 { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.focus\:border-slate-500:focus, .focus\:border-slate-400:focus) { border-color: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.focus\:ring-slate-500:focus, .focus\:ring-slate-400:focus) { --tw-ring-color: rgb(var(--ui-brand-rgb)); }
 /* In dark mode the brand is a light tint, so white text on a brand fill would wash out -- it
  * takes the canvas colour instead (the same inversion the global sheet gives slate-900 buttons). */
-.dark :is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) :is(.bg-ui-brand, .bg-slate-900).text-white { color: rgb(var(--ui-bg-rgb)); }
+.dark :is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.bg-ui-brand, .bg-slate-900).text-white { color: rgb(var(--ui-bg-rgb)); }
 /* Recharts draws its grid, axis ticks and pie-wedge gaps as SVG presentation attributes in
  * slate hex; a CSS property outranks those, so the charts' chrome follows the kit too. Series
  * colours are left alone -- they carry identity (utils/palette.ts), not branding. */
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-cartesian-grid line { stroke: rgb(var(--ui-border-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-cartesian-axis-tick-value { fill: rgb(var(--ui-muted-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-active-dot circle { stroke: rgb(var(--ui-surface-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .recharts-cartesian-grid line { stroke: rgb(var(--ui-border-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .recharts-cartesian-axis-tick-value { fill: rgb(var(--ui-muted-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .recharts-active-dot circle { stroke: rgb(var(--ui-surface-rgb)); }
+/* gainr's dividend chart (`.kit-income`): received in the brand colour, expected in its soft tint
+ * with a dashed brand outline -- one measure in two states. */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-bar.received .recharts-bar-rectangle path { fill: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-bar.expected .recharts-bar-rectangle path { fill: rgb(var(--ui-brand-soft-rgb)); stroke: rgb(var(--ui-brand-rgb)); stroke-width: 1px; stroke-dasharray: 3 2; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-legend-item:nth-child(1) .recharts-surface path { fill: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-legend-item:nth-child(2) .recharts-surface path { fill: rgb(var(--ui-brand-soft-rgb)); stroke: rgb(var(--ui-brand-rgb)); stroke-width: 2px; stroke-dasharray: 3 2; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-legend-item-text { color: rgb(var(--ui-ink-soft-rgb)) !important; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-income .recharts-tooltip-cursor { fill: rgb(var(--ui-tile-rgb)); }
 /* A single-series bar chart in the module's brand colour (wrap it in `.kit-bars`). */
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .kit-bars .recharts-bar-rectangle path { fill: rgb(var(--ui-brand-rgb)); }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .recharts-pie-sector path { stroke: rgb(var(--ui-surface-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-bars .recharts-bar-rectangle path { fill: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) :is(.kit-bars, .kit-line) .recharts-tooltip-cursor { fill: rgb(var(--ui-tile-rgb)); stroke: rgb(var(--ui-line-rgb)); }
+/* A single-series line chart in the module's brand colour (wrap it in `.kit-line`): the line, and its dots with a surface ring. */
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-line .recharts-line-curve { stroke: rgb(var(--ui-brand-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .kit-line :is(.recharts-line-dots, .recharts-active-dot) circle { fill: rgb(var(--ui-brand-rgb)); stroke: rgb(var(--ui-surface-rgb)); }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .recharts-pie-sector path { stroke: rgb(var(--ui-surface-rgb)); }
 /* Collapsible section titles (gainr's Home cards) in the display face. */
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .collapsible-title {
-  font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .collapsible-title {
+  font-family: var(--font-display);
   font-size: 1.125rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: rgb(var(--ui-ink-rgb));
 }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .rounded-lg { border-radius: 16px; }
-:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr) .rounded-md { border-radius: 12px; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .rounded-lg { border-radius: 16px; }
+:is(.module-gainr, .module-gripr, .module-gardnr, .module-listr, .module-trainr, .module-taskr, .module-briefr, .module-notr, .module-vandaag) .rounded-md { border-radius: 12px; }
 
 /* ---------------------------------------------------------------------------------------------
  * A table's first column pinned to the left edge on phones (`.pinned-col`), so a row's name stays
@@ -648,7 +881,12 @@ body {
   .module-gainr .pinned-col,
   .module-gripr .pinned-col,
   .module-listr .pinned-col,
-  .module-gardnr .pinned-col {
+  .module-gardnr .pinned-col,
+  .module-trainr .pinned-col,
+  .module-taskr .pinned-col,
+  .module-briefr .pinned-col,
+  .module-notr .pinned-col,
+  .module-vandaag .pinned-col {
     --pin-bg: rgb(var(--ui-surface-rgb));
   }
   .pinned-col-scrolled .pinned-col::after {
@@ -661,4 +899,23 @@ body {
     pointer-events: none;
     background: linear-gradient(to right, var(--pin-bg), transparent);
   }
+}
+
+/* Font packages, picked in Settings (src/utils/fontPackages.ts) and stored as `data-font` on <html>.
+ * No attribute is the default: Bricolage Grotesque headings, Instrument Sans text. */
+:root {
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-text: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-font="a"] {
+  --font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-text: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-font="b"] {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-text: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-font="c"] {
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-text: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 }

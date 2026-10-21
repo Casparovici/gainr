@@ -28,15 +28,14 @@ import {
   taskCounts,
   type TaskCounts,
 } from "../../components/gardnr/ui";
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+import { t, tp } from "../../i18n";
 
 /** "2 taken te laat — en 2 voor vandaag, in 2 tuinen", linking to Vandaag. Terracotta when
  * something is overdue, amber when it's only today's work; absent when nothing is due. */
 function DueBanner({ total, gardens }: { total: TaskCounts; gardens: number }) {
   if (total.late === 0 && total.today === 0) return null;
   const late = total.late > 0;
-  const inGardens = `in ${plural(gardens, "tuin", "tuinen")}`;
+  const inGardens = tp(gardens, "in {n} tuin", "in {n} tuinen");
   return (
     <Link
       to="/gardnr/vandaag"
@@ -47,15 +46,13 @@ function DueBanner({ total, gardens }: { total: TaskCounts; gardens: number }) {
       </span>
       <span className="flex min-w-0 flex-grow flex-col gap-px">
         <span className="text-[15px] font-bold">
-          {late ? `${plural(total.late, "taak", "taken")} te laat` : `${plural(total.today, "taak", "taken")} voor vandaag`}
+          {late ? tp(total.late, "{n} taak te laat", "{n} taken te laat") : tp(total.today, "{n} taak voor vandaag", "{n} taken voor vandaag")}
         </span>
         <span className={`text-[13px] ${late ? "text-ui-late-ink" : "text-ui-today"}`}>
-          {late && total.today > 0 ? `en ${total.today} voor vandaag, ${inGardens}` : inGardens}
+          {late && total.today > 0 ? t("en {today} voor vandaag, {inGardens}", { today: total.today, inGardens }) : inGardens}
         </span>
       </span>
-      <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold">
-        Vandaag
-        <IconChevronRight size={16} />
+      <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold">{t("Vandaag")}<IconChevronRight size={16} />
       </span>
     </Link>
   );
@@ -71,7 +68,7 @@ function AreaCard({ area, detail, counts }: { area: GardenArea; detail: GardenAr
       <div className="flex min-w-0 flex-grow flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <span className="truncate font-display text-xl font-bold tracking-[-0.02em]">{area.name}</span>
-          <span className="text-sm text-ui-muted">{plural(area.plant_count, "plant", "planten")}</span>
+          <span className="text-sm text-ui-muted">{tp(area.plant_count, "{n} plant", "{n} planten")}</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <AreaStatusChips late={counts.late} today={counts.today} />
@@ -119,16 +116,16 @@ function EditableAreaCard({
       className={`flex flex-col gap-2.5 rounded-[20px] border bg-ui-surface p-3 ${isDragTarget ? "border-ui-brand" : "border-ui-border"}`}
     >
       <div className="flex items-center gap-2.5">
-        <span aria-hidden className="shrink-0 cursor-grab text-ui-faint" title="Sleep om te verplaatsen">
+        <span aria-hidden className="shrink-0 cursor-grab text-ui-faint" title={t("Sleep om te verplaatsen")}>
           <IconGrip size={20} />
         </span>
         <MiniMap detail={detail} width={56} height={62} />
         <label className="flex flex-grow flex-col gap-0.5 text-xs text-ui-muted">
-          {plural(area.plant_count, "plant", "planten")}
+          {tp(area.plant_count, "{n} plant", "{n} planten")}
           <input
             type="text"
             value={name}
-            aria-label="Naam"
+            aria-label={t("Naam")}
             onChange={(e) => setName(e.target.value)}
             onBlur={save}
             onKeyDown={(e) => {
@@ -143,16 +140,14 @@ function EditableAreaCard({
         </label>
       </div>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={() => onMove(-1)} disabled={isFirst} aria-label={`${area.name} eerder zetten`} className={iconButtonClass}>
+        <button type="button" onClick={() => onMove(-1)} disabled={isFirst} aria-label={t("{name} eerder zetten", { name: area.name })} className={iconButtonClass}>
           <IconChevronUp size={20} />
         </button>
-        <button type="button" onClick={() => onMove(1)} disabled={isLast} aria-label={`${area.name} later zetten`} className={iconButtonClass}>
+        <button type="button" onClick={() => onMove(1)} disabled={isLast} aria-label={t("{name} later zetten", { name: area.name })} className={iconButtonClass}>
           <IconChevronDown size={20} />
         </button>
-        <button type="button" onClick={onDelete} aria-label={`${area.name} verwijderen`} className={dangerButtonClass}>
-          <IconTrash size={18} />
-          Verwijderen
-        </button>
+        <button type="button" onClick={onDelete} aria-label={t("{name} verwijderen", { name: area.name })} className={dangerButtonClass}>
+          <IconTrash size={18} />{t("Verwijderen")}</button>
       </div>
     </div>
   );
@@ -168,16 +163,12 @@ function NewAreaForm({ onCancel, onSubmit, isPending }: { onCancel: () => void; 
       }}
       className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface p-3"
     >
-      <label className="flex flex-col gap-1 text-xs font-semibold text-ui-muted">
-        Naam van de tuin
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="bijv. Voortuin" className={inputClass} />
+      <label className="flex flex-col gap-1 text-xs font-semibold text-ui-muted">{t("Naam van de tuin")}<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t("bijv. Voortuin")} className={inputClass} />
       </label>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-          Annuleren
-        </button>
+        <button type="button" onClick={onCancel} className={secondaryButtonClass}>{t("Annuleren")}</button>
         <button type="submit" disabled={!name.trim() || isPending} className={`${primaryButtonClass} h-11`}>
-          {isPending ? "Toevoegen…" : "Toevoegen"}
+          {isPending ? t("Toevoegen…") : t("Toevoegen")}
         </button>
       </div>
     </form>
@@ -240,11 +231,16 @@ export default function GardnrAreas() {
   });
 
   function confirmDelete(area: GardenArea) {
-    const consequence =
+    const question =
       area.plant_count > 0
-        ? `de ${plural(area.plant_count, "plant", "planten")} erin, met hun verzorgingslogboek en schema's, worden ook verwijderd`
-        : "de vakken op de plattegrond worden ook verwijderd";
-    if (window.confirm(`"${area.name}" verwijderen? Ook ${consequence}.`)) deleteMutation.mutate(area.id);
+        ? tp(
+            area.plant_count,
+            "\"{name}\" verwijderen? Ook de {n} plant erin, met hun verzorgingslogboek en schema's, worden ook verwijderd.",
+            "\"{name}\" verwijderen? Ook de {n} planten erin, met hun verzorgingslogboek en schema's, worden ook verwijderd.",
+            { name: area.name },
+          )
+        : t("\"{name}\" verwijderen? Ook de vakken op de plattegrond worden ook verwijderd.", { name: area.name });
+    if (window.confirm(question)) deleteMutation.mutate(area.id);
   }
 
   /** Moves `sourceId` to `targetIndex` in the current order -- optimistically, then saved. */
@@ -275,16 +271,14 @@ export default function GardnrAreas() {
     <NewAreaForm onCancel={() => setCreating(false)} onSubmit={(name) => createMutation.mutate(name)} isPending={createMutation.isPending} />
   ) : (
     <button type="button" onClick={() => setCreating(true)} className={dashedButtonClass}>
-      <IconPlus size={20} />
-      Nieuwe tuin
-    </button>
+      <IconPlus size={20} />{t("Nieuwe tuin")}</button>
   );
 
   if (editing) {
     return (
       <div className="flex flex-col gap-3">
-        <EditBar title="Tuinen" onDone={() => setEditing(false)} />
-        <p className="m-0 pt-1 text-[13px] text-ui-ink-soft">Hernoem een tuin, zet hem hoger of lager, of houd de greep vast om te slepen.</p>
+        <EditBar title={t("Tuinen")} onDone={() => setEditing(false)} />
+        <p className="m-0 pt-1 text-[13px] text-ui-ink-soft">{t("Hernoem een tuin, zet hem hoger of lager, of houd de greep vast om te slepen.")}</p>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {areas.map((area, i) => (
             <EditableAreaCard
@@ -314,7 +308,7 @@ export default function GardnrAreas() {
           ))}
         </div>
         {newArea}
-        {failed && <p className="text-sm text-ui-late">Opslaan is mislukt — probeer het opnieuw.</p>}
+        {failed && <p className="text-sm text-ui-late">{t("Opslaan is mislukt — probeer het opnieuw.")}</p>}
       </div>
     );
   }
@@ -324,29 +318,22 @@ export default function GardnrAreas() {
       <GardnrTopRow>
         {areas.length > 0 && (
           <button type="button" onClick={() => setEditing(true)} className={secondaryButtonClass}>
-            <IconPencil size={18} />
-            Bewerken
-          </button>
+            <IconPencil size={18} />{t("Bewerken")}</button>
         )}
       </GardnrTopRow>
 
-      <PageTitle subtitle={areasQuery.data ? `${plural(areas.length, "tuin", "tuinen")} · ${plural(plantTotal, "plant", "planten")}` : undefined}>
-        Tuinen
-      </PageTitle>
+      <PageTitle subtitle={areasQuery.data ? `${tp(areas.length, "{n} tuin", "{n} tuinen")} · ${tp(plantTotal, "{n} plant", "{n} planten")}` : undefined}>{t("Tuinen")}</PageTitle>
 
       <DueBanner total={total} gardens={gardensWithWork} />
 
       {areasQuery.isLoading ? (
-        <Placeholder>Laden…</Placeholder>
+        <Placeholder>{t("Laden…")}</Placeholder>
       ) : areasQuery.isError ? (
-        <Placeholder>
-          Tuinen konden niet worden geladen.{" "}
-          <button onClick={() => areasQuery.refetch()} className="font-semibold text-ui-brand-strong underline">
-            Opnieuw proberen
-          </button>
+        <Placeholder>{t("Tuinen konden niet worden geladen.")}{" "}
+          <button onClick={() => areasQuery.refetch()} className="font-semibold text-ui-brand-strong underline">{t("Opnieuw proberen")}</button>
         </Placeholder>
       ) : areas.length === 0 ? (
-        <Placeholder>Nog geen tuinen — voeg er een toe om je planten in kaart te brengen.</Placeholder>
+        <Placeholder>{t("Nog geen tuinen — voeg er een toe om je planten in kaart te brengen.")}</Placeholder>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {areas.map((area) => (
@@ -356,7 +343,7 @@ export default function GardnrAreas() {
       )}
 
       {newArea}
-      {failed && <p className="text-sm text-ui-late">Opslaan is mislukt — probeer het opnieuw.</p>}
+      {failed && <p className="text-sm text-ui-late">{t("Opslaan is mislukt — probeer het opnieuw.")}</p>}
     </div>
   );
 }

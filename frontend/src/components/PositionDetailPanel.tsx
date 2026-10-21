@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import AssetLogo from "./AssetLogo";
 import CollapsibleCard from "./CollapsibleCard";
-import LabelPicker, { LabelChips } from "./LabelPicker";
 import NewsSourcesEditor from "./NewsSourcesEditor";
-import NoteBody from "./NoteBody";
+import LinkedNotes from "./notr/LinkedNotes";
 import PositionCalendarSection, { NextEventLine } from "./PositionCalendar";
+import PriceChart from "./PriceChart";
 import TargetWeightInput from "./TargetWeightInput";
+import AttachmentBadge from "./AttachmentBadge";
 import TransactionForm from "./TransactionForm";
 import { api } from "../api/client";
 import { usePortfolio } from "../hooks/usePortfolio";
@@ -19,8 +19,6 @@ import type {
   FinancialPeriod,
   KeyMetrics,
   Position,
-  PositionNote,
-  PositionNoteInput,
   Transaction,
   TransactionInput,
 } from "../api/types";
@@ -33,19 +31,24 @@ import {
   formatQuantity,
   formatRatio,
   formatRelativeTime,
+  formatTime,
   formatWeight,
   pnlColorClass,
   toNumber,
 } from "../utils/format";
+import { warnFailedAttachments } from "../utils/attachments";
+import PositionMetricsSection from "./PositionMetrics";
+import { msg, t as tr } from "../i18n";
 
-type Tab = "overview" | "financials" | "transactions" | "notes" | "calendar";
+type Tab = "overview" | "financials" | "metrics" | "transactions" | "notes" | "calendar";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "financials", label: "Financials" },
-  { id: "transactions", label: "Transactions" },
-  { id: "notes", label: "Notes" },
-  { id: "calendar", label: "Calendar" },
+  { id: "overview", label: msg("Overview") },
+  { id: "financials", label: msg("Financials") },
+  { id: "metrics", label: msg("Metrics") },
+  { id: "transactions", label: msg("Transactions") },
+  { id: "notes", label: msg("Notes") },
+  { id: "calendar", label: msg("Calendar") },
 ];
 
 // Enough to cover any single holding's history without paging inside a side panel.
@@ -95,10 +98,10 @@ function DltRatingInput({ assetId, value }: { assetId: number; value: DltJudgmen
         value ? DLT_TEXT_COLOR[value] : "text-slate-400"
       }`}
     >
-      <option value="">No rating</option>
-      <option value="attractive">Attractive</option>
-      <option value="neutral">Neutral</option>
-      <option value="critical">Critical</option>
+      <option value="">{tr("No rating")}</option>
+      <option value="attractive">{tr("Attractive")}</option>
+      <option value="neutral">{tr("Neutral")}</option>
+      <option value="critical">{tr("Critical")}</option>
     </select>
   );
 }
@@ -115,25 +118,23 @@ function NewsSection({ assetId, enabled }: { assetId: number; enabled: boolean }
     <div className="mt-6">
       <CollapsibleCard
         storageKey={`news-${assetId}`}
-        title="News"
+        title={tr("News")}
         meta={
-          <span className="text-xs text-slate-400">
-            past {query.data?.window_days ?? 7} days
-            {query.data ? ` · ${query.data.items.length}` : ""}
+          <span className="text-xs text-slate-400">{tr("past {value} days", { value: query.data?.window_days ?? 7 })}{query.data ? ` · ${query.data.items.length}` : ""}
           </span>
         }
       >
         {query.data && <NewsSourcesEditor assetId={assetId} sources={query.data.sources} />}
         <div className="space-y-3">
           {query.isLoading ? (
-            <Placeholder>Loading news…</Placeholder>
+            <Placeholder>{tr("Loading news…")}</Placeholder>
           ) : query.isError ? (
-            <Placeholder>Couldn't load news for this holding.</Placeholder>
+            <Placeholder>{tr("Couldn't load news for this holding.")}</Placeholder>
           ) : !query.data || query.data.items.length === 0 ? (
             <Placeholder>
               {query.data?.sources.length
-                ? "No stories in the past week."
-                : "No stories in the past week. For a fund or commodity, add a market, sector or industry above."}
+                ? tr("No stories in the past week.")
+                : tr("No stories in the past week. For a fund or commodity, add a market, sector or industry above.")}
             </Placeholder>
           ) : (
             query.data.items.map((item) => (
@@ -185,14 +186,16 @@ function CashByBrokerSection({ enabled }: { enabled: boolean }) {
   });
 
   const createMutation = useMutation({
-    mutationFn: (input: TransactionInput) => api.createTransaction(input),
+    mutationFn: ({ input, files }: { input: TransactionInput; files: File[] }) =>
+      api.createTransactionWithAttachments(input, files),
     // A Transfer moves cash between brokers, not just numbers on this one panel -- the
     // Transactions page's own list and its broker filter both need to see it too.
-    onSuccess: () => {
-      for (const key of [["summary"], ["transactions"], ["brokers"]]) {
+    onSuccess: ({ failed }) => {
+      for (const key of [["summary"], ["transactions"], ["brokers"], ["cash-movements"]]) {
         queryClient.invalidateQueries({ queryKey: key });
       }
       setShowTransferForm(false);
+      warnFailedAttachments(failed);
     },
   });
 
@@ -202,27 +205,23 @@ function CashByBrokerSection({ enabled }: { enabled: boolean }) {
   return (
     <div className="mt-6">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-sm font-medium text-slate-700">Cash by broker</h3>
+        <h3 className="text-sm font-medium text-slate-700">{tr("Cash by broker")}</h3>
         <button
           type="button"
           onClick={() => setShowTransferForm(true)}
           className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-        >
-          Transfer
-        </button>
+        >{tr("Transfer")}</button>
       </div>
 
       {createMutation.error && (
-        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          Couldn't save that transfer: {createMutation.error.message}
-        </p>
+        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{tr("Couldn't save that transfer: {message}", { message: createMutation.error.message })}</p>
       )}
 
       <div className="mt-2">
         {summaryQuery.isLoading ? (
-          <Placeholder>Loading…</Placeholder>
+          <Placeholder>{tr("Loading…")}</Placeholder>
         ) : entries.length === 0 ? (
-          <Placeholder>No broker recorded on any cash movement yet.</Placeholder>
+          <Placeholder>{tr("No broker recorded on any cash movement yet.")}</Placeholder>
         ) : (
           <dl className="divide-y divide-slate-50 text-sm">
             {entries.map(([broker, amount]) => (
@@ -248,7 +247,7 @@ function CashByBrokerSection({ enabled }: { enabled: boolean }) {
               portfolioId={portfolioId}
               isSubmitting={createMutation.isPending}
               onCancel={() => setShowTransferForm(false)}
-              onSubmit={(input) => createMutation.mutate(input)}
+              onSubmit={(input, files) => createMutation.mutate({ input, files })}
             />
           </div>,
           document.body,
@@ -263,15 +262,15 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
   const money = (value: string | null) => formatCompactCurrency(value, financials.currency);
 
   const rows: { label: string; render: (p: FinancialPeriod) => React.ReactNode }[] = [
-    { label: "Revenue", render: (p) => <span className="tabular-nums text-slate-900">{money(p.revenue)}</span> },
+    { label: tr("Revenue"), render: (p) => <span className="tabular-nums text-slate-900">{money(p.revenue)}</span> },
     {
-      label: "Revenue growth",
+      label: tr("Revenue growth"),
       render: (p) => (
         <span className={`tabular-nums ${pnlColorClass(p.revenue_growth_pct)}`}>{formatPct(p.revenue_growth_pct, 1)}</span>
       ),
     },
     {
-      label: "Free cash flow",
+      label: tr("Free cash flow"),
       render: (p) => (
         <span className={`tabular-nums ${(toNumber(p.free_cash_flow) ?? 0) < 0 ? "text-red-600" : "text-slate-900"}`}>
           {money(p.free_cash_flow)}
@@ -279,7 +278,7 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
       ),
     },
     {
-      label: "Net income",
+      label: tr("Net income"),
       render: (p) => (
         <span className={`tabular-nums ${(toNumber(p.net_income) ?? 0) < 0 ? "text-red-600" : "text-slate-900"}`}>
           {money(p.net_income)}
@@ -287,7 +286,7 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
       ),
     },
     {
-      label: "Net margin",
+      label: tr("Net margin"),
       render: (p) => (
         <span className={`tabular-nums ${(toNumber(p.net_margin_pct) ?? 0) < 0 ? "text-red-600" : "text-slate-900"}`}>
           {formatPct(p.net_margin_pct, 1, false)}
@@ -299,7 +298,7 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
     ...(periods.some((p) => p.cost_income_pct !== null)
       ? [
           {
-            label: "Cost/income",
+            label: tr("Cost/income"),
             render: (p: FinancialPeriod) => (
               <span className="tabular-nums text-slate-900">{formatPct(p.cost_income_pct, 1, false)}</span>
             ),
@@ -314,7 +313,7 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
         <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-3 text-left font-medium">Figure</th>
+              <th className="py-2 pr-3 text-left font-medium">{tr("Figure")}</th>
               {periods.map((p) => (
                 <th key={p.label} className="whitespace-nowrap px-1.5 py-2 text-right font-medium">
                   {p.label}
@@ -337,11 +336,8 @@ function FinancialsTable({ financials }: { financials: AssetFinancials }) {
         </table>
       </div>
 
-      <p className="mt-3 text-xs leading-relaxed text-slate-400">
-        As reported{financials.currency ? ` in ${financials.currency}` : ""} — not converted to euros, so these don't
-        line up with the values above. Growth is against the comparable prior period: the year before for a full year,
-        the same quarter a year earlier for a quarter.
-        {periods.length > 0 && ` Latest period ends ${formatDate(periods[0].period_end)}.`}
+      <p className="mt-3 text-xs leading-relaxed text-slate-400">{tr("As reported")}{financials.currency ? ` ${tr("in {currency}", { currency: financials.currency })}` : ""}{" "}{tr("— not converted to euros, so these don't line up with the values above. Growth is against the comparable prior period: the year before for a full year, the same quarter a year earlier for a quarter.")}{periods.length > 0 && ` ${tr("Latest period ends {date}.", { date: formatDate(periods[0].period_end) })}`}
+
       </p>
     </div>
   );
@@ -366,37 +362,37 @@ function MetricTile({ label, value, negative }: { label: string; value: string; 
 function KeyMetricsGrid({ metrics, currency }: { metrics: KeyMetrics; currency: string | null }) {
   const groups: { title: string; tiles: { label: string; value: string; negative?: boolean }[] }[] = [
     {
-      title: "Valuation",
+      title: tr("Valuation"),
       tiles: [
-        { label: "P/E (TTM)", value: formatRatio(metrics.pe_ratio) },
-        { label: "Forward P/E", value: formatRatio(metrics.forward_pe_ratio) },
+        { label: tr("P/E (TTM)"), value: formatRatio(metrics.pe_ratio) },
+        { label: tr("Forward P/E"), value: formatRatio(metrics.forward_pe_ratio) },
         { label: "P/FCF", value: formatRatio(metrics.price_to_fcf) },
         { label: "EV/EBITDA", value: formatRatio(metrics.ev_to_ebitda) },
       ],
     },
     {
-      title: "Profitability",
+      title: tr("Profitability"),
       tiles: [
-        { label: "Gross margin", value: formatPct(metrics.gross_margin_pct, 1, false) },
-        { label: "Operating margin", value: formatPct(metrics.operating_margin_pct, 1, false) },
+        { label: tr("Gross margin"), value: formatPct(metrics.gross_margin_pct, 1, false) },
+        { label: tr("Operating margin"), value: formatPct(metrics.operating_margin_pct, 1, false) },
         {
-          label: "Net margin",
+          label: tr("Net margin"),
           value: formatPct(metrics.net_margin_pct, 1, false),
           negative: (toNumber(metrics.net_margin_pct) ?? 0) < 0,
         },
       ],
     },
     {
-      title: "Balance sheet",
+      title: tr("Balance sheet"),
       tiles: [
         {
-          label: "Return on equity",
+          label: tr("Return on equity"),
           value: formatPct(metrics.return_on_equity_pct, 1, false),
           negative: (toNumber(metrics.return_on_equity_pct) ?? 0) < 0,
         },
-        { label: "Debt / equity", value: formatRatio(metrics.debt_to_equity) },
+        { label: tr("Debt / equity"), value: formatRatio(metrics.debt_to_equity) },
         {
-          label: (toNumber(metrics.net_cash) ?? 0) < 0 ? "Net debt" : "Net cash",
+          label: (toNumber(metrics.net_cash) ?? 0) < 0 ? tr("Net debt") : tr("Net cash"),
           value: formatCompactCurrency(
             metrics.net_cash === null ? null : Math.abs(toNumber(metrics.net_cash) ?? 0).toString(),
             currency,
@@ -406,10 +402,10 @@ function KeyMetricsGrid({ metrics, currency }: { metrics: KeyMetrics; currency: 
       ],
     },
     {
-      title: "Dividend",
+      title: tr("Dividend"),
       tiles: [
-        { label: "Dividend yield", value: formatPct(metrics.dividend_yield_pct, 2, false) },
-        { label: "Payout ratio", value: formatPct(metrics.payout_ratio_pct, 1, false) },
+        { label: tr("Dividend yield"), value: formatPct(metrics.dividend_yield_pct, 2, false) },
+        { label: tr("Payout ratio"), value: formatPct(metrics.payout_ratio_pct, 1, false) },
       ],
     },
   ];
@@ -426,9 +422,7 @@ function KeyMetricsGrid({ metrics, currency }: { metrics: KeyMetrics; currency: 
           </div>
         </div>
       ))}
-      <p className="text-xs leading-relaxed text-slate-400">
-        A snapshot as of the last quote, not tied to a reporting period — separate from the figures below.
-      </p>
+      <p className="text-xs leading-relaxed text-slate-400">{tr("A snapshot as of the last quote, not tied to a reporting period — separate from the figures below.")}</p>
     </div>
   );
 }
@@ -441,15 +435,81 @@ function FinancialsSection({ assetId, enabled }: { assetId: number; enabled: boo
     staleTime: 60 * 60 * 1000,
   });
 
-  if (query.isLoading) return <Placeholder>Loading financials…</Placeholder>;
-  if (query.isError) return <Placeholder>Couldn't load financials for this holding.</Placeholder>;
+  if (query.isLoading) return <Placeholder>{tr("Loading financials…")}</Placeholder>;
+  if (query.isError) return <Placeholder>{tr("Couldn't load financials for this holding.")}</Placeholder>;
   if (!query.data || (!query.data.quarter && query.data.annual.length === 0)) {
-    return <Placeholder>No reported financials — funds and crypto don't file statements.</Placeholder>;
+    return <Placeholder>{tr("No reported financials — funds and crypto don't file statements.")}</Placeholder>;
   }
   return (
     <div>
       {query.data.key_metrics && <KeyMetricsGrid metrics={query.data.key_metrics} currency={query.data.currency} />}
       <FinancialsTable financials={query.data} />
+    </div>
+  );
+}
+
+/** The Cash card's ledger: every deposit, withdrawal, dividend, interest payment, fee and transfer
+ * behind the balance -- buys and sells are left out, they live on their positions. Read-only on
+ * purpose: these rows are edited on the Transactions page. */
+function CashMovementsSection({ enabled }: { enabled: boolean }) {
+  const { portfolioId } = usePortfolio();
+  const query = useQuery({
+    queryKey: ["cash-movements", portfolioId],
+    queryFn: () =>
+      api.listTransactions({
+        portfolioId: portfolioId!,
+        cashMovements: true,
+        limit: TRANSACTION_LIMIT,
+        sortBy: "date",
+        sortDir: "desc",
+      }),
+    enabled: enabled && portfolioId !== null,
+  });
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-slate-700">{tr("Cash movements")}{query.data ? ` (${query.data.total})` : ""}
+      </h3>
+      <div className="mt-2">
+        {query.isLoading ? (
+          <Placeholder>{tr("Loading cash movements…")}</Placeholder>
+        ) : query.isError ? (
+          <Placeholder>{tr("Couldn't load the cash movements.")}</Placeholder>
+        ) : !query.data || query.data.items.length === 0 ? (
+          <Placeholder>{tr("No cash movements recorded.")}</Placeholder>
+        ) : (
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-2 font-medium">{tr("Date")}</th>
+                <th className="py-2 pr-2 font-medium">{tr("Type")}</th>
+                <th className="py-2 pr-2 font-medium">{tr("Broker")}</th>
+                <th className="py-2 text-right font-medium">{tr("Total")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {query.data.items.map((txn) => (
+                <tr key={txn.id} className="border-b border-slate-50 last:border-0">
+                  <td className="whitespace-nowrap py-2 pr-2 text-slate-600">
+                    {formatDate(txn.date, { year: "2-digit", month: "short", day: "numeric" })}
+                  </td>
+                  <td className="py-2 pr-2 text-slate-900">
+                    {tr(txn.type)}
+                    {txn.asset_name && <span className="text-slate-500"> · {txn.asset_name}</span>}
+                    <AttachmentBadge count={txn.attachment_count} />
+                  </td>
+                  <td className="py-2 pr-2 text-slate-600">
+                    {txn.to_broker ? `${txn.broker ?? "—"} → ${txn.to_broker}` : (txn.broker ?? "—")}
+
+                  </td>
+                  <td className="py-2 text-right tabular-nums font-medium text-slate-900">{formatEur(txn.total_eur)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-slate-400">{tr("Everything that moves cash except buying and selling. Edit these on the Transactions page.")}</p>
     </div>
   );
 }
@@ -485,15 +545,19 @@ function TransactionsSection({
   /** Positions, the summary and the chart are all derived from the ledger, so editing one
    * transaction moves every number on the page — not just this list. */
   const invalidateAll = () => {
-    for (const key of [["asset-transactions"], ["transactions"], ["positions"], ["summary"], ["performance"]]) {
+    for (const key of [["asset-transactions"], ["transactions"], ["cash-movements"], ["positions"], ["summary"], ["performance"]]) {
       queryClient.invalidateQueries({ queryKey: key });
     }
     setEditing(null);
   };
 
   const createMutation = useMutation({
-    mutationFn: (input: TransactionInput) => api.createTransaction(input),
-    onSuccess: invalidateAll,
+    mutationFn: ({ input, files }: { input: TransactionInput; files: File[] }) =>
+      api.createTransactionWithAttachments(input, files),
+    onSuccess: ({ failed }) => {
+      invalidateAll();
+      warnFailedAttachments(failed);
+    },
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, input }: { id: number; input: TransactionInput }) => api.updateTransaction(id, input),
@@ -505,40 +569,35 @@ function TransactionsSection({
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <h3 className="text-sm font-medium text-slate-700">
-          Transactions{query.data ? ` (${query.data.total})` : ""}
+        <h3 className="text-sm font-medium text-slate-700">{tr("Transactions")}{query.data ? ` (${query.data.total})` : ""}
         </h3>
         <button
           type="button"
           onClick={() => setEditing({ transaction: undefined })}
           className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-        >
-          + Add
-        </button>
+        >{tr("+ Add")}</button>
       </div>
 
       {error && (
-        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          Couldn't save that transaction: {error.message}
-        </p>
+        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{tr("Couldn't save that transaction: {message}", { message: error.message })}</p>
       )}
 
       <div className="mt-2">
         {query.isLoading ? (
-          <Placeholder>Loading transactions…</Placeholder>
+          <Placeholder>{tr("Loading transactions…")}</Placeholder>
         ) : query.isError ? (
-          <Placeholder>Couldn't load transactions for this holding.</Placeholder>
+          <Placeholder>{tr("Couldn't load transactions for this holding.")}</Placeholder>
         ) : !query.data || query.data.items.length === 0 ? (
-          <Placeholder>No transactions recorded for this holding.</Placeholder>
+          <Placeholder>{tr("No transactions recorded for this holding.")}</Placeholder>
         ) : (
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-2 font-medium">Date</th>
-                <th className="py-2 pr-2 font-medium">Type</th>
-                <th className="py-2 pr-2 text-right font-medium">Quantity</th>
-                <th className="py-2 pr-2 text-right font-medium">Price</th>
-                <th className="py-2 text-right font-medium">Total</th>
+                <th className="py-2 pr-2 font-medium">{tr("Date")}</th>
+                <th className="py-2 pr-2 font-medium">{tr("Type")}</th>
+                <th className="py-2 pr-2 text-right font-medium">{tr("Quantity")}</th>
+                <th className="py-2 pr-2 text-right font-medium">{tr("Price")}</th>
+                <th className="py-2 text-right font-medium">{tr("Total")}</th>
               </tr>
             </thead>
             <tbody>
@@ -560,8 +619,9 @@ function TransactionsSection({
                       }}
                       className="text-slate-900 hover:text-blue-700 hover:underline"
                     >
-                      {txn.type}
+                      {tr(txn.type)}
                     </button>
+                    <AttachmentBadge count={txn.attachment_count} />
                   </td>
                   <td className="py-2 pr-2 text-right tabular-nums text-slate-600">
                     {txn.quantity ? formatQuantity(txn.quantity) : "—"}
@@ -577,10 +637,7 @@ function TransactionsSection({
         )}
       </div>
 
-      <p className="mt-3 text-xs leading-relaxed text-slate-400">
-        Click a transaction to edit it. Positions and performance are derived from this ledger,
-        so a change here moves every figure on the page.
-      </p>
+      <p className="mt-3 text-xs leading-relaxed text-slate-400">{tr("Click a transaction to edit it. Positions and performance are derived from this ledger, so a change here moves every figure on the page.")}</p>
 
       {/* Portalled to the body: the panel is transformed while it slides, and a transform
           makes it the containing block for fixed children — the modal would otherwise be
@@ -598,198 +655,15 @@ function TransactionsSection({
               portfolioId={portfolioId}
               isSubmitting={isSubmitting}
               onCancel={() => setEditing(null)}
-              onSubmit={(input) =>
+              onSubmit={(input, files) =>
                 editing.transaction
                   ? updateMutation.mutate({ id: editing.transaction.id, input })
-                  : createMutation.mutate(input)
+                  : createMutation.mutate({ input, files })
               }
             />
           </div>,
           document.body,
         )}
-    </div>
-  );
-}
-
-const noteInputClass =
-  "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
-
-function NoteForm({
-  initial,
-  onCancel,
-  onSubmit,
-  isSubmitting,
-}: {
-  initial: PositionNote | undefined;
-  onCancel: () => void;
-  onSubmit: (input: PositionNoteInput) => void;
-  isSubmitting: boolean;
-}) {
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [body, setBody] = useState(initial?.body ?? "");
-  const [labelIds, setLabelIds] = useState<number[]>(initial?.labels.map((l) => l.id) ?? []);
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit({ title, body, label_ids: labelIds });
-      }}
-      className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 p-3"
-    >
-      <input
-        required
-        autoFocus
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title"
-        className={noteInputClass}
-      />
-      <textarea
-        required
-        rows={4}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder="What's on your mind? **bold**, *italic*, ~~strikethrough~~, `code`, # headings, - bullets and 1. numbered lists are supported."
-        className={`${noteInputClass} resize-y`}
-      />
-      <LabelPicker selectedIds={labelIds} onChange={setLabelIds} />
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-        >
-          {isSubmitting ? "Saving…" : "Save"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function NotesSection({ assetId, enabled }: { assetId: number; enabled: boolean }) {
-  const queryClient = useQueryClient();
-  // null = closed; undefined inside the object = adding rather than editing.
-  const [editing, setEditing] = useState<{ note: PositionNote | undefined } | null>(null);
-
-  const query = useQuery({
-    queryKey: ["position-notes", assetId],
-    queryFn: () => api.listPositionNotes(assetId),
-    enabled,
-  });
-
-  const invalidate = () => {
-    // Broad, not just this asset: a note can be about several positions, and the Journal shows
-    // the same rows.
-    queryClient.invalidateQueries({ queryKey: ["position-notes"] });
-    queryClient.invalidateQueries({ queryKey: ["journal-notes"] });
-    setEditing(null);
-  };
-  const createMutation = useMutation({
-    mutationFn: (input: PositionNoteInput) => api.createPositionNote(assetId, input),
-    onSuccess: invalidate,
-  });
-  const updateMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: Partial<PositionNoteInput> }) =>
-      api.updatePositionNote(assetId, id, input),
-    onSuccess: invalidate,
-  });
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => api.deletePositionNote(assetId, id),
-    // A shared note disappears from its other positions and the Journal too.
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["position-notes"] });
-      queryClient.invalidateQueries({ queryKey: ["journal-notes"] });
-    },
-  });
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-sm font-medium text-slate-700">Notes{query.data ? ` (${query.data.length})` : ""}</h3>
-        {editing === null && (
-          <button
-            type="button"
-            onClick={() => setEditing({ note: undefined })}
-            className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-          >
-            + Add
-          </button>
-        )}
-      </div>
-
-      {editing && (
-        <NoteForm
-          initial={editing.note}
-          isSubmitting={isSubmitting}
-          onCancel={() => setEditing(null)}
-          onSubmit={(input) =>
-            editing.note ? updateMutation.mutate({ id: editing.note.id, input }) : createMutation.mutate(input)
-          }
-        />
-      )}
-
-      <div className="mt-2 space-y-3">
-        {query.isLoading ? (
-          <Placeholder>Loading notes…</Placeholder>
-        ) : query.isError ? (
-          <Placeholder>Couldn't load notes for this holding.</Placeholder>
-        ) : !query.data || query.data.length === 0 ? (
-          editing === null && <Placeholder>No notes yet — keep a journal on why you hold this.</Placeholder>
-        ) : (
-          query.data.map((note) => (
-            <article key={note.id} className="border-b border-slate-100 pb-3 last:border-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <h4 className="truncate text-sm font-medium text-slate-900">{note.title}</h4>
-                <span className="shrink-0 text-xs text-slate-400">{formatRelativeTime(note.created_at)}</span>
-              </div>
-              <div className="mt-1">
-                <NoteBody note={note} />
-              </div>
-              {note.assets.length > 1 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Also about{" "}
-                  {note.assets
-                    .filter((a) => a.id !== assetId)
-                    .map((a) => a.ticker)
-                    .join(", ")}
-                </p>
-              )}
-              {note.labels.length > 0 && (
-                <div className="mt-1.5">
-                  <LabelChips labels={note.labels} />
-                </div>
-              )}
-              <div className="mt-1.5 flex gap-3 text-xs">
-                <button type="button" onClick={() => setEditing({ note })} className="text-slate-500 hover:text-slate-900" title="Edit" aria-label="Edit">
-                  <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const others = note.assets.filter((a) => a.id !== assetId).map((a) => a.ticker);
-                    const also = others.length > 0 ? ` It's also about ${others.join(", ")} and will be removed there too.` : "";
-                    if (confirm(`Delete "${note.title}"?${also}`)) deleteMutation.mutate(note.id);
-                  }}
-                  className="text-red-500 hover:text-red-700"
-                  title="Delete"
-                  aria-label="Delete"
-                >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              </div>
-            </article>
-          ))
-        )}
-      </div>
     </div>
   );
 }
@@ -816,9 +690,18 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
+  // Only some holdings have a checklist (see fundamentals_metrics.py); the tab appears for those.
+  const metricsQuery = useQuery({
+    queryKey: ["asset-metrics", shown?.asset_id],
+    queryFn: () => api.getAssetMetrics(shown!.asset_id),
+    enabled: open && !!shown && shown.asset_id > 0,
+    staleTime: 60 * 60 * 1000,
+  });
+
   if (!shown) return null;
 
   const isCash = shown.ticker === "CASH";
+  const hasMetrics = (metricsQuery.data?.metrics.length ?? 0) > 0;
 
   return (
     <>
@@ -833,7 +716,7 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label={`${shown.name} details`}
+        aria-label={tr("{name} details", { name: shown.name })}
         aria-hidden={!open}
         className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out sm:max-w-xl ${
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
@@ -844,14 +727,17 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-semibold text-slate-900">{shown.name}</h2>
             <div className="text-xs text-slate-500">
-              {isCash ? "Cash balance" : shown.ticker}
-              {!isCash && shown.price_date && ` · priced ${formatDate(shown.price_date)}`}
+              {isCash ? tr("Cash balance") : shown.ticker}
+              {!isCash &&
+                shown.price_date &&
+                ` · ${tr("priced {date}", { date: formatDate(shown.price_date) })}${shown.price_quoted_at ? `, ${formatTime(shown.price_quoted_at)}` : ""}`}
+
             </div>
           </div>
           <button
             ref={closeButton}
             onClick={onClose}
-            aria-label="Close"
+            aria-label={tr("Close")}
             className="-mr-1 rounded-md p-1.5 text-xl leading-none text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             ×
@@ -859,9 +745,9 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
         </header>
 
         {/* Scrolls sideways rather than wrapping when five tabs don't fit a phone-width panel. */}
-        <nav className="flex gap-3 overflow-x-auto border-b border-slate-200 px-4 sm:gap-4 sm:px-5" aria-label="Position detail sections">
+        <nav className="flex gap-3 overflow-x-auto border-b border-slate-200 px-4 sm:gap-4 sm:px-5" aria-label={tr("Position detail sections")}>
           {/* Cash is a derived row, not a company -- it has no events to show. */}
-          {TABS.filter((t) => !(isCash && t.id === "calendar")).map((t) => (
+          {TABS.filter((t) => !(isCash && (t.id === "calendar" || t.id === "notes")) && (t.id !== "metrics" || hasMetrics)).map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -872,7 +758,7 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
                   : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              {t.label}
+              {tr(t.label)}
             </button>
           ))}
         </nav>
@@ -881,44 +767,46 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
           {tab === "overview" ? (
             <>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <Stat label="Quantity" value={isCash ? "—" : formatQuantity(shown.quantity)} />
+                <Stat label={tr("Quantity")} value={isCash ? "—" : formatQuantity(shown.quantity)} />
                 <Stat
-                  label="Price"
+                  label={tr("Price")}
                   value={isCash ? "—" : formatCurrency(shown.current_price_native, shown.native_currency)}
                 />
-                <Stat label="Value" value={formatEur(shown.market_value_eur)} />
+                <Stat label={tr("Value")} value={formatEur(shown.market_value_eur)} />
               </div>
+
+              {!isCash && <PriceChart assetId={shown.asset_id} enabled={open && shown.asset_id > 0} />}
 
               {!isCash && (
                 <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">Cost basis</dt>
+                    <dt className="text-slate-500">{tr("Cost basis")}</dt>
                     <dd className="tabular-nums text-slate-700">{formatEur(shown.cost_basis_eur)}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">Weight</dt>
+                    <dt className="text-slate-500">{tr("Weight")}</dt>
                     <dd className="tabular-nums text-slate-700">{formatWeight(shown.weight_pct)}</dd>
                   </div>
                   <div className="flex items-center justify-between">
-                    <dt className="text-slate-500">Target weight</dt>
+                    <dt className="text-slate-500">{tr("Target weight")}</dt>
                     <dd>
                       <TargetWeightInput position={shown} />
                     </dd>
                   </div>
                   <div className="flex items-center justify-between">
-                    <dt className="text-slate-500">DLT rating</dt>
+                    <dt className="text-slate-500">{tr("DLT rating")}</dt>
                     <dd>
                       <DltRatingInput assetId={shown.asset_id} value={shown.dlt_judgment} />
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">Unrealized</dt>
+                    <dt className="text-slate-500">{tr("Unrealized")}</dt>
                     <dd className={`tabular-nums ${pnlColorClass(shown.unrealized_pnl_eur)}`}>
                       {formatEur(shown.unrealized_pnl_eur)} ({formatPct(shown.unrealized_pnl_pct)})
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">Realized</dt>
+                    <dt className="text-slate-500">{tr("Realized")}</dt>
                     <dd className={`tabular-nums ${pnlColorClass(shown.realized_pnl_eur)}`}>
                       {(toNumber(shown.realized_pnl_eur) ?? 0) === 0 ? "—" : formatEur(shown.realized_pnl_eur)}
                     </dd>
@@ -934,6 +822,10 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
             </>
           ) : tab === "financials" ? (
             <FinancialsSection assetId={shown.asset_id} enabled={open && shown.asset_id > 0} />
+          ) : tab === "metrics" ? (
+            metricsQuery.data && hasMetrics ? <PositionMetricsSection data={metricsQuery.data} /> : <Placeholder>{tr("No metrics for this holding.")}</Placeholder>
+          ) : tab === "transactions" && isCash ? (
+            <CashMovementsSection enabled={open} />
           ) : tab === "transactions" ? (
             <TransactionsSection
               assetId={shown.asset_id}
@@ -941,7 +833,7 @@ export default function PositionDetailPanel({ position, onClose }: { position: P
               enabled={open && shown.asset_id > 0}
             />
           ) : tab === "notes" ? (
-            <NotesSection assetId={shown.asset_id} enabled={open && shown.asset_id > 0} />
+            <LinkedNotes assetId={shown.asset_id} />
           ) : (
             <PositionCalendarSection assetId={shown.asset_id} enabled={open && shown.asset_id > 0} />
           )}

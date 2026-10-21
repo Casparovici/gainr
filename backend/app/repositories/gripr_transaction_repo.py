@@ -1,10 +1,12 @@
 from datetime import date as date_
 from decimal import Decimal
 
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import Session, aliased, joinedload
 
+from app.models.bank_sync import BankSyncedTransaction
 from app.models.gripr_transaction import GriprTransaction, GriprTransactionType
+from app.models.gripr_transaction_attachment import GriprTransactionAttachment
 
 
 def list_transactions(
@@ -21,6 +23,7 @@ def list_transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     uncategorized: bool = False,
+    search: str | None = None,
 ) -> tuple[list[GriprTransaction], int]:
     query = select(GriprTransaction).options(
         joinedload(GriprTransaction.account),
@@ -62,6 +65,11 @@ def list_transactions(
         query = query.where(GriprTransaction.amount <= amount_max)
         count_query = count_query.where(GriprTransaction.amount <= amount_max)
 
+    if search and search.strip():
+        clause = _search_clause(search.strip())
+        query = query.where(clause)
+        count_query = count_query.where(clause)
+
     sort_col = getattr(GriprTransaction, sort_by, GriprTransaction.date)
     query = query.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc(), GriprTransaction.id.desc())
     query = query.offset(offset).limit(limit)
@@ -69,6 +77,28 @@ def list_transactions(
     total = db.execute(count_query).scalar_one()
     items = list(db.execute(query).unique().scalars().all())
     return items, total
+
+
+def _search_clause(text: str):
+    """Free-text search over what a transaction says about itself: its notes (where the bank's
+    counterparty and description land), the name of its category or account, and -- when the text
+    reads as an amount ("31,20", "31.2") -- the amount itself."""
+    from app.models.gripr_account import GriprAccount
+    from app.models.gripr_category import GriprCategory
+
+    pattern = f"%{text.casefold()}%"
+    clauses = [
+        func.lower(func.coalesce(GriprTransaction.notes, "")).like(pattern),
+        GriprTransaction.category_id.in_(select(GriprCategory.id).where(func.lower(GriprCategory.name).like(pattern))),
+        GriprTransaction.account_id.in_(select(GriprAccount.id).where(func.lower(GriprAccount.name).like(pattern))),
+    ]
+    try:
+        amount = Decimal(text.replace("€", "").replace(" ", "").replace(",", "."))
+    except ArithmeticError:
+        amount = None
+    if amount is not None and amount.is_finite():
+        clauses.append(GriprTransaction.amount == amount)
+    return or_(*clauses)
 
 
 def usage_counts(db: Session) -> dict[int, int]:
@@ -156,6 +186,9 @@ def update_transaction(db: Session, txn: GriprTransaction, **fields) -> GriprTra
 
 
 def delete_transaction(db: Session, txn: GriprTransaction) -> None:
+    # SQLite doesn't enforce the attachments' ON DELETE CASCADE (foreign keys are off), so the
+    # files go explicitly -- otherwise they'd outlive the transaction as unreachable rows.
+    db.execute(delete(GriprTransactionAttachment).where(GriprTransactionAttachment.transaction_id == txn.id))
     db.delete(txn)
     db.flush()
 
@@ -336,26 +369,95 @@ def list_expecting_back(db: Session) -> list[GriprTransaction]:
     return list(db.execute(query).scalars().unique().all())
 
 
-def net_flow(db: Session, account_ids: set[int], date_from: date_, date_to: date_) -> Decimal:
-    """What moved into this group of accounts in the range, net: transfers in from outside the group
-    and income or refunds on it, minus transfers out of the group and expenses paid from it.
-    Transfers between two accounts of the group cancel out. Nothing dated after today counts yet."""
-    if not account_ids:
-        return Decimal(0)
+def _flow_case(account_ids: set[int]):
+    """Per-row signed contribution to this group of accounts: transfers in from outside the
+    group and income or refunds on it are positive, transfers out of the group and expenses paid
+    from it are negative, and a transfer between two accounts of the group is zero. Shared by
+    `net_flow` and `daily_net_flow` so the two can't drift apart on sign conventions."""
     T = GriprTransactionType
     mine = GriprTransaction.account_id.in_(account_ids)
     counter_mine = GriprTransaction.counter_account_id.in_(account_ids)
-    signed = case(
+    return case(
         (and_(GriprTransaction.type == T.TRANSFER, counter_mine, ~mine), GriprTransaction.amount),
         (and_(GriprTransaction.type == T.TRANSFER, mine, or_(GriprTransaction.counter_account_id.is_(None), ~counter_mine)), -GriprTransaction.amount),
         (and_(GriprTransaction.type.in_([T.INCOME, T.REFUND]), mine), GriprTransaction.amount),
         (and_(GriprTransaction.type == T.EXPENSE, mine), -GriprTransaction.amount),
         else_=0,
     )
-    query = select(func.coalesce(func.sum(signed), 0)).where(
+
+
+def net_flow(db: Session, account_ids: set[int], date_from: date_, date_to: date_) -> Decimal:
+    """What moved into this group of accounts in the range, net: transfers in from outside the group
+    and income or refunds on it, minus transfers out of the group and expenses paid from it.
+    Transfers between two accounts of the group cancel out. Nothing dated after today counts yet."""
+    if not account_ids:
+        return Decimal(0)
+    mine = GriprTransaction.account_id.in_(account_ids)
+    counter_mine = GriprTransaction.counter_account_id.in_(account_ids)
+    query = select(func.coalesce(func.sum(_flow_case(account_ids)), 0)).where(
         or_(mine, counter_mine),
         GriprTransaction.date >= date_from,
         GriprTransaction.date <= date_to,
         GriprTransaction.date <= date_.today(),
     )
     return Decimal(db.execute(query).scalar_one())
+
+
+def daily_net_flow(db: Session, account_ids: set[int], date_from: date_, date_to: date_) -> dict[date_, Decimal]:
+    """Like `net_flow`, but one total per day -- the building block for a running daily balance
+    of this account group. Only dated up to today, same as `net_flow`; a caller that also needs
+    future-dated rows (a balance forecast) gets those from `list_touching` instead."""
+    if not account_ids:
+        return {}
+    mine = GriprTransaction.account_id.in_(account_ids)
+    counter_mine = GriprTransaction.counter_account_id.in_(account_ids)
+    query = (
+        select(GriprTransaction.date, func.coalesce(func.sum(_flow_case(account_ids)), 0))
+        .where(
+            or_(mine, counter_mine),
+            GriprTransaction.date >= date_from,
+            GriprTransaction.date <= date_to,
+            GriprTransaction.date <= date_.today(),
+        )
+        .group_by(GriprTransaction.date)
+    )
+    return {row[0]: Decimal(row[1]) for row in db.execute(query).all()}
+
+
+def list_touching(db: Session, account_ids: set[int], date_from: date_, date_to: date_) -> list[GriprTransaction]:
+    """Real ledger rows touching this account group in the range, including future-dated ones
+    (a recurring rule pre-booked a couple of days ahead, or a transaction entered by hand ahead of
+    time) -- unlike every sum above, deliberately not capped at today, since a balance forecast
+    needs to know about those too."""
+    if not account_ids:
+        return []
+    query = select(GriprTransaction).where(
+        or_(GriprTransaction.account_id.in_(account_ids), GriprTransaction.counter_account_id.in_(account_ids)),
+        GriprTransaction.date >= date_from,
+        GriprTransaction.date <= date_to,
+    )
+    return list(db.execute(query).scalars().all())
+
+
+# A single payment above this is a purchase or a bill, not routine spending.
+EVERYDAY_MAX = Decimal(500)
+
+
+def everyday_expenses(db: Session, date_from: date_, date_to: date_) -> list[tuple[date_, Decimal]]:
+    """(date, amount) of the routine expenses in the range -- what a spending pattern is learned
+    from. Left out: recurring payments (a rent or subscription lands on its rule's day whatever
+    the weekday, so it says nothing about when the reader spends; both the rows a rule booked
+    itself and the bank entries filed under one), and any single payment above EVERYDAY_MAX (a
+    large purchase would swamp the pattern). Nothing dated after today."""
+    fulfilled = select(BankSyncedTransaction.gripr_transaction_id).where(
+        BankSyncedTransaction.recurring_id.is_not(None), BankSyncedTransaction.gripr_transaction_id.is_not(None)
+    )
+    query = select(GriprTransaction.date, GriprTransaction.amount).where(
+        GriprTransaction.type == GriprTransactionType.EXPENSE,
+        GriprTransaction.amount <= EVERYDAY_MAX,
+        GriprTransaction.date >= date_from,
+        GriprTransaction.date <= min(date_to, date_.today()),
+        or_(GriprTransaction.source_ref.is_(None), ~GriprTransaction.source_ref.startswith("pefi_recurring:")),
+        GriprTransaction.id.not_in(fulfilled),
+    )
+    return [(row[0], Decimal(row[1])) for row in db.execute(query).all()]

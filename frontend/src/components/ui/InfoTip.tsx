@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
+import { t } from "../../i18n";
 
 /** The ⓘ button that folds a section's explanation in and out -- a native button, so it's
  * reachable by keyboard and announces whether the text is showing. */
@@ -20,7 +21,8 @@ export function InfoButton({
   return (
     <button
       type="button"
-      aria-label={`About ${label}`}
+      aria-label={t("About {label}", { label })}
+
       aria-expanded={open}
       aria-controls={controls}
       onClick={onToggle}

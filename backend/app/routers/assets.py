@@ -1,13 +1,24 @@
 import hashlib
+from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.repositories import asset_repo, position_note_label_repo, position_note_repo
-from app.schemas.asset import AssetCreate, AssetOut, AssetTargetWeightIn, AssetUpdate, SymbolLookupOut, SymbolMatchOut
-from app.schemas.position_note import PositionNoteCreate, PositionNoteOut, PositionNoteUpdate
+from app.repositories import asset_repo
+from app.schemas.asset import (
+    AssetCreate,
+    AssetOut,
+    AssetTargetWeightIn,
+    AssetUpdate,
+    PriceChartOut,
+    PricePointOut,
+    SymbolLookupOut,
+    SymbolMatchOut,
+)
 from app.services.logo_service import logo_service
+from app.services.price_chart_service import price_chart_service
 from app.services.price_service import price_service
 from app.services.target_weight_service import TargetWeightExceeded, set_asset_target_weight
 
@@ -128,47 +139,29 @@ def update_asset_target_weight(asset_id: int, payload: AssetTargetWeightIn, db: 
     return payload
 
 
-# -- position notes -----------------------------------------------------------------------------
-
-
-@router.get("/{asset_id}/notes", response_model=list[PositionNoteOut])
-def list_position_notes(asset_id: int, db: Session = Depends(get_db)):
-    if asset_repo.get_asset(db, asset_id) is None:
+@router.get("/{asset_id}/prices", response_model=PriceChartOut)
+def get_price_chart(
+    asset_id: int,
+    range_key: Literal["1D", "1W", "1M", "YTD", "3Y"] = Query("1M", alias="range"),
+    db: Session = Depends(get_db),
+):
+    """The position's own price over a range, in its trading currency (docs/adr/0053): daily
+    closes, with today's live quote, or for 1D the last session through the day. An asset with no
+    price symbol (a manual holding, cash) has no prices: an empty chart, not an error."""
+    asset = asset_repo.get_asset(db, asset_id)
+    if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    return position_note_repo.list_notes(db, asset_id)
-
-
-@router.post("/{asset_id}/notes", response_model=PositionNoteOut)
-def create_position_note(asset_id: int, payload: PositionNoteCreate, db: Session = Depends(get_db)):
-    if asset_repo.get_asset(db, asset_id) is None:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    fields = payload.model_dump(exclude={"label_ids"})
-    labels = position_note_label_repo.get_by_ids(db, payload.label_ids)
-    note = position_note_repo.create_note(db, assets=[asset_repo.get_asset(db, asset_id)], labels=labels, **fields)
-    db.commit()
-    db.refresh(note)
-    return note
-
-
-@router.put("/{asset_id}/notes/{note_id}", response_model=PositionNoteOut)
-def update_position_note(asset_id: int, note_id: int, payload: PositionNoteUpdate, db: Session = Depends(get_db)):
-    note = position_note_repo.get_note(db, note_id)
-    if note is None or not position_note_repo.is_linked(note, asset_id):
-        raise HTTPException(status_code=404, detail="Note not found")
-    fields = payload.model_dump(exclude_unset=True, exclude={"label_ids"})
-    if payload.label_ids is not None:
-        fields["labels"] = position_note_label_repo.get_by_ids(db, payload.label_ids)
-    position_note_repo.update_note(db, note, **fields)
-    db.commit()
-    db.refresh(note)
-    return note
-
-
-@router.delete("/{asset_id}/notes/{note_id}", status_code=204)
-def delete_position_note(asset_id: int, note_id: int, db: Session = Depends(get_db)):
-    note = position_note_repo.get_note(db, note_id)
-    if note is None or not position_note_repo.is_linked(note, asset_id):
-        raise HTTPException(status_code=404, detail="Note not found")
-    # Deletes the note itself, wherever else it's linked -- the Notes tab's confirmation says so.
-    position_note_repo.delete_note(db, note)
-    db.commit()
+    chart = price_chart_service.build(db, asset, range_key, date.today())
+    db.commit()  # a range that reached back past the cache backfilled it
+    return PriceChartOut(
+        range=chart.range,
+        currency=chart.currency,
+        interval=chart.interval,
+        points=[PricePointOut(time=p.time, price=p.price) for p in chart.points],
+        start_price=chart.start_price,
+        end_price=chart.end_price,
+        change=chart.change,
+        change_pct=chart.change_pct,
+        is_fallback=chart.is_fallback,
+        as_of=chart.as_of,
+    )

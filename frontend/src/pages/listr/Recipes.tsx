@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChefHat, DownloadCloud, ShoppingCart } from "lucide-react";
+import { DownloadCloud, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -8,7 +8,10 @@ import type { ListrRecipeInput } from "../../api/listrTypes";
 import MealieImportDialog from "../../components/listr/MealieImportDialog";
 import PicnicImportDialog from "../../components/listr/PicnicImportDialog";
 import RecipeForm from "../../components/listr/RecipeForm";
+import RecipePhoto from "../../components/listr/RecipePhoto";
 import { IconChevronRight, IconPlus, ModuleTopRow, PageTitle, dashedButtonClass, secondaryButtonClass } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
+import { t, tp } from "../../i18n";
 
 export default function ListrRecipes() {
   const navigate = useNavigate();
@@ -18,7 +21,7 @@ export default function ListrRecipes() {
   const [importingFromMealie, setImportingFromMealie] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<number[]>([]);
 
-  const { data: recipes, isLoading } = useQuery({
+  const { data: recipes, isLoading, isError, refetch } = useQuery({
     queryKey: ["listr-recipes"],
     queryFn: () => listrApi.listRecipes(),
   });
@@ -36,7 +39,11 @@ export default function ListrRecipes() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (input: ListrRecipeInput) => listrApi.createRecipe(input),
+    mutationFn: async ({ input, photo }: { input: ListrRecipeInput; photo: File | null }) => {
+      const recipe = await listrApi.createRecipe(input);
+      if (photo) await listrApi.setRecipePhoto(recipe.id, photo);
+      return recipe;
+    },
     onSuccess: (recipe) => {
       queryClient.invalidateQueries({ queryKey: ["listr-recipes"] });
       setCreating(false);
@@ -56,23 +63,21 @@ export default function ListrRecipes() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow>
         {mealieStatus?.configured && (
-          <button onClick={() => setImportingFromMealie(true)} className={secondaryButtonClass} aria-label="Ophalen uit Mealie">
+          <button onClick={() => setImportingFromMealie(true)} className={secondaryButtonClass} aria-label={t("Ophalen uit Mealie")}>
             <DownloadCloud className="h-4 w-4" strokeWidth={2} />
             <span className="sm:hidden">Mealie</span>
-            <span className="hidden sm:inline">Ophalen uit Mealie</span>
+            <span className="hidden sm:inline">{t("Ophalen uit Mealie")}</span>
           </button>
         )}
         {picnicStatus?.configured && (
-          <button onClick={() => setImportingFromPicnic(true)} className={secondaryButtonClass} aria-label="Importeren van Picnic">
+          <button onClick={() => setImportingFromPicnic(true)} className={secondaryButtonClass} aria-label={t("Importeren van Picnic")}>
             <ShoppingCart className="h-4 w-4" strokeWidth={2} />
             <span className="sm:hidden">Picnic</span>
-            <span className="hidden sm:inline">Importeren van Picnic</span>
+            <span className="hidden sm:inline">{t("Importeren van Picnic")}</span>
           </button>
         )}
       </ModuleTopRow>
-      <PageTitle subtitle={recipes && recipes.length > 0 ? `${recipes.length} ${recipes.length === 1 ? "recept" : "recepten"}` : undefined}>
-        Recepten
-      </PageTitle>
+      <PageTitle subtitle={recipes && recipes.length > 0 ? tp(recipes.length, "{n} recept", "{n} recepten") : undefined}>{t("Recepten")}</PageTitle>
 
       {categories && categories.length > 0 && (
         // One scrolling row on a phone instead of three wrapped ones; wraps from tablet width up.
@@ -102,31 +107,27 @@ export default function ListrRecipes() {
       )}
 
       {isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
+      ) : isError ? (
+        <QueryError className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center" message={t("Recepten laden mislukt.")} onRetry={() => refetch()} retryLabel={t("Opnieuw")} />
       ) : !recipes || recipes.length === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">
-          Nog geen recepten — voeg er hieronder een toe.
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">{t("Nog geen recepten — voeg er hieronder een toe.")}</div>
       ) : visibleRecipes.length === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">
-          Geen recepten in deze categorie.
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-8 text-center text-ui-muted">{t("Geen recepten in deze categorie.")}</div>
       ) : (
         // One list, like gripr's accounts: a row per recipe, compact enough to scan a long cookbook.
-        <ul aria-label="Recepten" className="divide-y divide-ui-border overflow-hidden rounded-[20px] border border-ui-border bg-ui-surface">
+        <ul aria-label={t("Recepten")} className="divide-y divide-ui-border overflow-hidden rounded-[20px] border border-ui-border bg-ui-surface">
           {visibleRecipes.map((recipe) => (
             <li key={recipe.id}>
               <Link
                 to={`/listr/recept/${recipe.id}`}
                 className="flex min-h-[52px] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ui-tile"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ui-brand-soft text-ui-brand-strong">
-                  <ChefHat className="h-4 w-4" strokeWidth={2} />
-                </span>
+                <RecipePhoto recipe={recipe} className="h-11 w-11 rounded-xl" />
                 <span className="flex min-w-0 flex-grow flex-col">
                   <span className="truncate font-semibold text-ui-ink">{recipe.title}</span>
                   <span className="flex min-w-0 items-center gap-2 text-sm text-ui-muted">
-                    <span className="shrink-0">{recipe.servings ? `${recipe.servings} personen` : "Personen onbekend"}</span>
+                    <span className="shrink-0">{recipe.servings ? t("{servings} personen", { servings: recipe.servings }) : t("Personen onbekend")}</span>
                     {recipe.categories.map((c) => (
                       <span key={c.id} className="flex min-w-0 items-center gap-1">
                         <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? "currentColor" }} />
@@ -145,16 +146,14 @@ export default function ListrRecipes() {
       )}
 
       <button type="button" onClick={() => setCreating(true)} className={dashedButtonClass}>
-        <IconPlus size={20} />
-        Nieuw recept
-      </button>
+        <IconPlus size={20} />{t("Nieuw recept")}</button>
 
       {creating && (
         <RecipeForm
           initial={undefined}
           isSubmitting={createMutation.isPending}
           onCancel={() => setCreating(false)}
-          onSubmit={(input) => createMutation.mutate(input)}
+          onSubmit={(input, photo) => createMutation.mutate({ input, photo })}
         />
       )}
 

@@ -1,5 +1,6 @@
 import { Pencil } from "lucide-react";
 import { useState } from "react";
+import { t } from "../i18n";
 
 /** Reads as static text with a pencil icon until clicked, then becomes an editable input that
  * closes itself again on save -- same interaction Budget's amount cells already use
@@ -7,7 +8,7 @@ import { useState } from "react";
 export default function InlineEditText({
   value,
   onSave,
-  title = "Edit name",
+  title = t("Edit name"),
   textClassName = "truncate text-sm font-medium text-slate-900",
   inputClassName = "w-full rounded-md border border-slate-300 px-1.5 py-0.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500",
 }: {

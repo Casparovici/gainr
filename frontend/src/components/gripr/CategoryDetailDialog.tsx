@@ -10,14 +10,17 @@ import type {
   GriprTransactionInput,
 } from "../../api/griprTypes";
 import { CategoryGlyph } from "../../utils/categoryIcons";
-import { formatDate, formatEur, pnlColorClass } from "../../utils/format";
-import { GRIPR_TYPE_BADGE, griprSignedAmount } from "../../utils/griprTransactionType";
+import { warnFailedAttachments } from "../../utils/attachments";
+import { formatDate, formatEur, formatPct, pnlColorClass, toNumber } from "../../utils/format";
+import { GRIPR_TYPE_BADGE, griprSignedAmount, griprTypeLabel } from "../../utils/griprTransactionType";
 import ColorPicker from "../ColorPicker";
 import InlineEditText from "../InlineEditText";
 import ModalOverlay from "../ModalOverlay";
 import AccountBadge from "./AccountBadge";
 import GriprTransactionForm from "./GriprTransactionForm";
+import SubcategoryBreakdown from "./SubcategoryBreakdown";
 import { useConfirmDialog } from "./useConfirmDialog";
+import { t as tr, tp } from "../../i18n";
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +33,43 @@ const inputClass =
  * or narrowed to one subcategory), with add/edit/delete inline; the category's own settings
  * (name, colour, subcategories, loan link, archive, delete) sit below them, since those change
  * far less often than a budget gets checked. */
+/** "€238 this period · 18% above the 3-period average of €202": how this period compares with
+ * the category's usual, for spending or (an income category) receipts. */
+function CategoryComparisonLine({ categoryId, period, isExpense }: { categoryId: number; period: string; isExpense: boolean }) {
+  const { data, isError } = useQuery({
+    queryKey: ["gripr-category-comparison", categoryId, period],
+    queryFn: () => griprApi.getCategoryComparison(categoryId, period),
+  });
+  if (isError) return <p className="mb-4 text-xs text-on-surface-variant">{tr("Couldn't load the comparison with earlier periods.")}</p>;
+  if (!data) return null;
+  const change = toNumber(data.change_pct);
+  // More spending is the bad direction; more income the good one.
+  const bad = change !== null && (isExpense ? change > 0 : change < 0);
+  return (
+    <p className="mb-4 text-sm text-on-surface-variant">
+      <span className="font-medium tabular-nums text-on-surface">{formatEur(data.spent)}</span>{" "}{data.so_far ? tr("this period so far") : tr("this period")}
+      {data.average === null ? (
+        <>{" "}{tr("· nothing in the {periods} periods before to compare with", { periods: data.periods })}</>
+      ) : (
+        <>
+          {" · "}
+          {change !== null && Math.abs(change) >= 1 ? (
+            <span className={bad ? "text-red-600" : "text-emerald-600"}>
+              {formatPct(Math.abs(change), 0, false)} {change > 0 ? tr("above") : tr("below")}
+            </span>
+          ) : (
+            tr("in line with")
+          )}{" "}
+          {data.so_far
+            ? tr("what the {periods} periods before had spent by this point, on average", { periods: data.periods })
+            : tr("the {periods}-period average", { periods: data.periods })}{" "}(
+          <span className="tabular-nums text-on-surface">{formatEur(data.average)}</span>)
+        </>
+      )}
+    </p>
+  );
+}
+
 export default function CategoryDetailDialog({
   category,
   color,
@@ -97,11 +137,13 @@ export default function CategoryDetailDialog({
   });
 
   const createTransactionMutation = useMutation({
-    mutationFn: (input: GriprTransactionInput) => griprApi.createTransaction(input),
-    onSuccess: () => {
+    mutationFn: ({ input, files }: { input: GriprTransactionInput; files: File[] }) =>
+      griprApi.createTransactionWithAttachments(input, files),
+    onSuccess: ({ failed }) => {
       invalidate();
       setAddingTransaction(false);
       setRefundOf(undefined);
+      warnFailedAttachments(failed);
     },
   });
   const updateTransactionMutation = useMutation({
@@ -144,10 +186,11 @@ export default function CategoryDetailDialog({
   });
 
   async function confirmDelete(target: GriprCategory, childCount: number) {
-    const cascadeNote = childCount > 0 ? ` Its ${childCount} subcategor${childCount === 1 ? "y" : "ies"} will be deleted too.` : "";
+    const cascadeNote =
+      childCount > 0 ? ` ${tp(childCount, "Its {n} subcategory will be deleted too.", "Its {n} subcategories will be deleted too.")}` : "";
     const ok = await confirm({
-      title: `Delete "${target.name}"?`,
-      description: `Transactions filed under it become uncategorized, not deleted.${cascadeNote}`,
+      title: tr("Delete \"{name}\"?", { name: target.name }),
+      description: `${tr("Transactions filed under it become uncategorized, not deleted.")}${cascadeNote}`,
     });
     if (!ok) return;
     if (target.id === category.id) {
@@ -183,7 +226,7 @@ export default function CategoryDetailDialog({
                 <span
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
                   style={{ backgroundColor: color }}
-                  title="Change colour"
+                  title={tr("Change colour")}
                 >
                   <CategoryGlyph name={category.name} className="h-5 w-5 text-white" strokeWidth={2} />
                 </span>
@@ -193,27 +236,34 @@ export default function CategoryDetailDialog({
               <InlineEditText
                 value={category.name}
                 onSave={(name) => updateCategoryMutation.mutate({ id: category.id, patch: { name } })}
-                title="Edit category name"
+                title={tr("Edit category name")}
                 textClassName="truncate text-lg font-medium text-on-surface"
               />
               <span className="text-xs text-on-surface-variant">
-                {isExpense ? "Expense" : "Income"} category · {periodLabel}
-                {category.is_archived && " · archived"}
+                {isExpense ? tr("Expense category · {periodLabel}", { periodLabel }) : tr("Income category · {periodLabel}", { periodLabel })}
+                {category.is_archived && ` · ${tr("archived")}`}
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="shrink-0 text-on-surface-variant hover:text-on-surface" aria-label="Close">
+          <button onClick={onClose} className="shrink-0 text-on-surface-variant hover:text-on-surface" aria-label={tr("Close")}>
             ✕
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
+          <CategoryComparisonLine categoryId={category.id} period={periodStart} isExpense={isExpense} />
+          {isExpense && subcategories.length > 0 && (
+            <div className="mb-5 flex flex-col gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">{tr("By subcategory")}</span>
+              <SubcategoryBreakdown categoryId={category.id} period={periodStart} color={color} selectedId={subFilter} onSelect={setSubFilter} />
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-on-surface">Transactions</h3>
+              <h3 className="text-sm font-semibold text-on-surface">{tr("Transactions")}</h3>
               {subcategories.length > 0 && (
                 <select
-                  aria-label="Subcategory"
+                  aria-label={tr("Subcategory")}
                   value={subFilter ?? ""}
                   onChange={(e) => {
                     setSubFilter(e.target.value ? Number(e.target.value) : null);
@@ -221,7 +271,7 @@ export default function CategoryDetailDialog({
                   }}
                   className="rounded-md border border-outline px-2 py-1 text-xs"
                 >
-                  <option value="">All of {category.name}</option>
+                  <option value="">{tr("All of {name}", { name: category.name })}</option>
                   {subcategories.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -233,13 +283,11 @@ export default function CategoryDetailDialog({
             <button
               onClick={() => setAddingTransaction(true)}
               className="rounded-full border border-outline px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
-            >
-              + Add transaction
-            </button>
+            >{tr("+ Add transaction")}</button>
           </div>
           <div className="mt-1 flex items-baseline justify-between text-sm text-on-surface-variant">
             <span>
-              {total} transaction{total === 1 ? "" : "s"}
+              {tp(total, "{n} transaction", "{n} transactions")}
             </span>
             {total > 0 && (
               <span className={`font-medium tabular-nums ${pnlColorClass(totalAmount)}`}>{formatEur(totalAmount)}</span>
@@ -248,9 +296,9 @@ export default function CategoryDetailDialog({
 
           <div className="mt-2">
             {isLoading ? (
-              <div className="py-6 text-center text-sm text-on-surface-variant">Loading…</div>
+              <div className="py-6 text-center text-sm text-on-surface-variant">{tr("Loading…")}</div>
             ) : total === 0 ? (
-              <div className="py-6 text-center text-sm text-on-surface-variant">No transactions in this period.</div>
+              <div className="py-6 text-center text-sm text-on-surface-variant">{tr("No transactions in this period.")}</div>
             ) : (
               <table className="w-full text-sm">
                 <tbody>
@@ -266,7 +314,7 @@ export default function CategoryDetailDialog({
                             columns next to the amount -- they fold into one line here. */}
                         <div className="max-w-[9rem] truncate text-xs sm:hidden">
                           {[
-                            t.type !== "expense" && t.type !== "income" ? t.type : null,
+                            t.type !== "expense" && t.type !== "income" ? griprTypeLabel(t.type).toLowerCase() : null,
                             t.category_name && t.category_name !== category.name ? t.category_name : null,
                             t.notes,
                           ]
@@ -275,8 +323,8 @@ export default function CategoryDetailDialog({
                         </div>
                       </td>
                       <td className="hidden py-2 pr-2 sm:table-cell">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${GRIPR_TYPE_BADGE[t.type]}`}>
-                          {t.type}
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${GRIPR_TYPE_BADGE[t.type]}`}>
+                          {griprTypeLabel(t.type)}
                         </span>
                       </td>
                       <td className="py-2 pr-2">
@@ -300,8 +348,8 @@ export default function CategoryDetailDialog({
                             setEditingTransaction(t);
                           }}
                           className="hidden text-on-surface-variant hover:text-on-surface sm:inline"
-                          title="Edit"
-                          aria-label="Edit"
+                          title={tr("Edit")}
+                          aria-label={tr("Edit")}
                         >
                           <Pencil className="h-4 w-4" strokeWidth={2} />
                         </button>
@@ -309,14 +357,17 @@ export default function CategoryDetailDialog({
                           onClick={async (e) => {
                             e.stopPropagation();
                             const ok = await confirm({
-                              title: "Delete transaction?",
-                              description: `This ${t.type} transaction from ${formatDate(t.date)} will be permanently removed.`,
+                              title: tr("Delete transaction?"),
+                              description: tr("This {type} transaction from {date} will be permanently removed.", {
+                                type: griprTypeLabel(t.type).toLowerCase(),
+                                date: formatDate(t.date),
+                              }),
                             });
                             if (ok) deleteTransactionMutation.mutate(t.id);
                           }}
                           className="text-error hover:opacity-80 sm:ml-3"
-                          title="Delete"
-                          aria-label="Delete"
+                          title={tr("Delete")}
+                          aria-label={tr("Delete")}
                         >
                           <Trash2 className="h-4 w-4" strokeWidth={2} />
                         </button>
@@ -334,9 +385,7 @@ export default function CategoryDetailDialog({
                 disabled={page === 0}
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 className="rounded-full border border-outline px-3 py-1 disabled:opacity-40"
-              >
-                Prev
-              </button>
+              >{tr("Prev")}</button>
               <span>
                 {page + 1} / {totalPages}
               </span>
@@ -344,21 +393,17 @@ export default function CategoryDetailDialog({
                 disabled={page + 1 >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
                 className="rounded-full border border-outline px-3 py-1 disabled:opacity-40"
-              >
-                Next
-              </button>
+              >{tr("Next")}</button>
             </div>
           )}
 
           <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-outline-variant p-4">
-            <h3 className="text-sm font-semibold text-on-surface">Category settings</h3>
+            <h3 className="text-sm font-semibold text-on-surface">{tr("Category settings")}</h3>
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">Subcategories</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">{tr("Subcategories")}</span>
               {subcategories.length === 0 ? (
-                <span className="text-sm text-on-surface-variant">
-                  None yet — add one to tag transactions more finely without adding a budget line.
-                </span>
+                <span className="text-sm text-on-surface-variant">{tr("None yet — add one to tag transactions more finely without adding a budget line.")}</span>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {subcategories.map((sub) => (
@@ -370,10 +415,10 @@ export default function CategoryDetailDialog({
                         <InlineEditText
                           value={sub.name}
                           onSave={(name) => updateCategoryMutation.mutate({ id: sub.id, patch: { name } })}
-                          title="Edit subcategory name"
+                          title={tr("Edit subcategory name")}
                           textClassName={`truncate text-sm ${sub.is_archived ? "text-on-surface-variant/50" : "text-on-surface"}`}
                         />
-                        {sub.is_archived && <span className="text-xs"> (archived)</span>}
+                        {sub.is_archived && <span className="text-xs">{" "}{tr("(archived)")}</span>}
                       </span>
                       <span className="flex shrink-0 gap-3 text-on-surface-variant">
                         <button
@@ -382,8 +427,8 @@ export default function CategoryDetailDialog({
                             updateCategoryMutation.mutate({ id: sub.id, patch: { is_archived: !sub.is_archived } })
                           }
                           className="hover:text-on-surface"
-                          title={sub.is_archived ? "Unarchive" : "Archive"}
-                          aria-label={sub.is_archived ? `Unarchive ${sub.name}` : `Archive ${sub.name}`}
+                          title={sub.is_archived ? tr("Unarchive") : tr("Archive")}
+                          aria-label={sub.is_archived ? tr("Unarchive {name}", { name: sub.name }) : tr("Archive {name}", { name: sub.name })}
                         >
                           {sub.is_archived ? (
                             <ArchiveRestore className="h-4 w-4" strokeWidth={2} />
@@ -395,8 +440,8 @@ export default function CategoryDetailDialog({
                           type="button"
                           onClick={() => confirmDelete(sub, 0)}
                           className="text-error/70 hover:text-error"
-                          title="Delete"
-                          aria-label={`Delete ${sub.name}`}
+                          title={tr("Delete")}
+                          aria-label={tr("Delete {name}", { name: sub.name })}
                         >
                           <Trash2 className="h-4 w-4" strokeWidth={2} />
                         </button>
@@ -413,8 +458,8 @@ export default function CategoryDetailDialog({
                 className="flex gap-2"
               >
                 <input
-                  aria-label="New subcategory name"
-                  placeholder="New subcategory"
+                  aria-label={tr("New subcategory name")}
+                  placeholder={tr("New subcategory")}
                   value={newSubName}
                   onChange={(e) => setNewSubName(e.target.value)}
                   className={`min-w-0 flex-1 ${inputClass}`}
@@ -423,9 +468,7 @@ export default function CategoryDetailDialog({
                   type="submit"
                   disabled={!newSubName.trim() || createSubMutation.isPending}
                   className="rounded-full border border-outline px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-40"
-                >
-                  Add
-                </button>
+                >{tr("Add")}</button>
               </form>
             </div>
 
@@ -434,9 +477,7 @@ export default function CategoryDetailDialog({
                 <label
                   htmlFor={loanSelectId}
                   className="text-xs font-medium uppercase tracking-wide text-on-surface-variant"
-                >
-                  Pays off a loan
-                </label>
+                >{tr("Pays off a loan")}</label>
                 <select
                   id={loanSelectId}
                   aria-describedby={`${loanSelectId}-help`}
@@ -450,8 +491,8 @@ export default function CategoryDetailDialog({
                   }
                   className={inputClass}
                 >
-                  <option value="">— not linked —</option>
-                  {linkedLoanMissing && <option value={category.linked_loan_account_id ?? ""}>a deleted account</option>}
+                  <option value="">{tr("— not linked —")}</option>
+                  {linkedLoanMissing && <option value={category.linked_loan_account_id ?? ""}>{tr("a deleted account")}</option>}
                   {loanAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
@@ -460,8 +501,8 @@ export default function CategoryDetailDialog({
                 </select>
                 <span id={`${loanSelectId}-help`} className="text-xs text-on-surface-variant">
                   {loanAccounts.length === 0
-                    ? "No loan-type accounts exist yet — add one on Accounts first."
-                    : "An expense filed under this category automatically lowers the linked loan's balance by the same amount."}
+                    ? tr("No loan-type accounts exist yet — add one on Accounts first.")
+                    : tr("An expense filed under this category automatically lowers the linked loan's balance by the same amount.")}
                 </span>
               </div>
             )}
@@ -475,8 +516,8 @@ export default function CategoryDetailDialog({
                 className="flex items-center gap-1.5 rounded-full border border-outline px-3 py-1.5 text-sm font-medium text-on-surface hover:bg-on-surface/5"
                 title={
                   category.is_archived
-                    ? "Show it on Budget again"
-                    : "Hide it from Budget; its transactions and history stay"
+                    ? tr("Show it on Budget again")
+                    : tr("Hide it from Budget; its transactions and history stay")
                 }
               >
                 {category.is_archived ? (
@@ -484,16 +525,14 @@ export default function CategoryDetailDialog({
                 ) : (
                   <Archive className="h-4 w-4" strokeWidth={2} />
                 )}
-                {category.is_archived ? "Unarchive" : "Archive"}
+                {category.is_archived ? tr("Unarchive") : tr("Archive")}
               </button>
               <button
                 type="button"
                 onClick={() => confirmDelete(category, subcategories.length)}
                 className="flex items-center gap-1.5 rounded-full border border-outline px-3 py-1.5 text-sm font-medium text-error hover:bg-error/10"
               >
-                <Trash2 className="h-4 w-4" strokeWidth={2} />
-                Delete
-              </button>
+                <Trash2 className="h-4 w-4" strokeWidth={2} />{tr("Delete")}</button>
             </div>
           </div>
         </div>
@@ -502,9 +541,7 @@ export default function CategoryDetailDialog({
           <button
             onClick={onClose}
             className="rounded-full border border-outline px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-          >
-            Close
-          </button>
+          >{tr("Close")}</button>
         </div>
       </ModalOverlay>
 
@@ -527,11 +564,11 @@ export default function CategoryDetailDialog({
             setEditingTransaction(undefined);
             setRefundOf(undefined);
           }}
-          onSubmit={(input) => {
+          onSubmit={(input, files) => {
             if (editingTransaction) {
               updateTransactionMutation.mutate({ id: editingTransaction.id, input });
             } else {
-              createTransactionMutation.mutate(input);
+              createTransactionMutation.mutate({ input, files });
             }
           }}
         />

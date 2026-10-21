@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import type { GriprCategoryKind, GriprSuggestionFigures } from "../../api/griprTypes";
 import { decimalInputToApi, formatEur, toNumber } from "../../utils/format";
+import { t } from "../../i18n";
 
 /** Reads as static text until the pencil (or the row itself) is clicked, then becomes an
  * editable input that closes itself again on save — so a tile with a budget set doesn't sit
@@ -24,7 +25,9 @@ export default function BudgetCell({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const label = kind === "income" ? "Target" : "Budget";
+  const isIncome = kind === "income";
+  const label = isIncome ? t("Target") : t("Budget");
+  const editTitle = isIncome ? t("Edit target") : t("Edit budget");
 
   if (!editing && compact) {
     const unset = (toNumber(value) ?? 0) === 0;
@@ -36,10 +39,10 @@ export default function BudgetCell({
           setEditing(true);
         }}
         className="group inline-flex items-center gap-1 rounded-md px-1 text-xs tabular-nums hover:bg-surface-container sm:text-sm"
-        title={`Edit ${label.toLowerCase()}`}
+        title={editTitle}
       >
         <span className="text-on-surface-variant">
-          {unset ? `set ${label.toLowerCase()}` : formatEur(value)}
+          {unset ? (isIncome ? t("set target") : t("set budget")) : formatEur(value)}
         </span>
         <Pencil className="h-3 w-3 text-outline group-hover:text-on-surface-variant" strokeWidth={2} />
       </button>
@@ -55,7 +58,7 @@ export default function BudgetCell({
           setEditing(true);
         }}
         className="group flex w-full items-center justify-between rounded-md px-1.5 py-1 text-sm hover:bg-surface-container"
-        title={`Edit ${label.toLowerCase()}`}
+        title={editTitle}
       >
         <span className="text-on-surface-variant">{label}</span>
         <span className="flex items-center gap-1.5 font-medium tabular-nums text-on-surface">
@@ -71,9 +74,9 @@ export default function BudgetCell({
   const isEmpty = (toNumber(value) ?? 0) === 0;
   const chips = isEmpty
     ? [
-        { label: "Last month", amount: toNumber(suggestion?.previous_month) ?? 0 },
-        { label: "Year avg", amount: toNumber(suggestion?.year_average) ?? 0 },
-        { label: "Recurring", amount: toNumber(suggestion?.recurring_monthly) ?? 0 },
+        { label: t("Last month"), amount: toNumber(suggestion?.previous_month) ?? 0 },
+        { label: t("Year avg"), amount: toNumber(suggestion?.year_average) ?? 0 },
+        { label: t("Recurring"), amount: toNumber(suggestion?.recurring_monthly) ?? 0 },
       ].filter((chip) => chip.amount > 0)
     : [];
 

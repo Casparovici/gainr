@@ -1,4 +1,5 @@
 import ModalOverlay from "../ModalOverlay";
+import { t } from "../../i18n";
 
 /** Material's AlertDialog -- title, supporting text, two text buttons right-aligned -- in place
  * of the browser's own `confirm()`, which can't be styled or themed and looks like nothing else
@@ -6,7 +7,7 @@ import ModalOverlay from "../ModalOverlay";
 export default function GriprConfirmDialog({
   title,
   description,
-  confirmLabel = "Delete",
+  confirmLabel = t("Delete"),
   destructive = true,
   onConfirm,
   onCancel,
@@ -27,9 +28,7 @@ export default function GriprConfirmDialog({
           type="button"
           onClick={onCancel}
           className="rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-        >
-          Cancel
-        </button>
+        >{t("Cancel")}</button>
         <button
           type="button"
           onClick={onConfirm}

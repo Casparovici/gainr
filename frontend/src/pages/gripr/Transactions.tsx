@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, Pencil, Repeat, Trash2, Undo2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeftRight, Repeat } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { griprApi } from "../../api/griprClient";
@@ -13,16 +13,23 @@ import type {
   GriprTransactionType,
 } from "../../api/griprTypes";
 import AccountBadge from "../../components/gripr/AccountBadge";
+import AttachmentBadge from "../../components/AttachmentBadge";
 import GriprTransactionForm from "../../components/gripr/GriprTransactionForm";
 import GriprButton from "../../components/gripr/GriprButton";
+import TransactionBulkBar from "../../components/gripr/TransactionBulkBar";
 import MobileFab from "../../components/MobileFab";
 import { ModuleTopRow, PageTitle, secondaryButtonClass } from "../../components/ui/kit";
 import CollapsibleCard from "../../components/CollapsibleCard";
 import { useConfirmDialog } from "../../components/gripr/useConfirmDialog";
+import { warnFailedAttachments } from "../../utils/attachments";
 import { buildCategoryColorMap } from "../../utils/categoryColor";
 import { categoryIcon } from "../../utils/categoryIcons";
 import { addDaysIso, decimalInputToApi, formatDate, formatEur, pnlColorClass, todayIsoDate } from "../../utils/format";
-import { GRIPR_TYPE_BADGE, GRIPR_TYPE_OPTIONS, griprSignedAmount } from "../../utils/griprTransactionType";
+import { GRIPR_TYPE_BADGE, GRIPR_TYPE_OPTIONS, griprSignedAmount, griprTypeLabel } from "../../utils/griprTransactionType";
+import { QueryError } from "../../components/ui/QueryError";
+import { msg, t as tr, tp } from "../../i18n";
+
+const LOAD_ERROR = msg("Couldn't load transactions.");
 
 const PAGE_SIZE = 50;
 // The category filter's "no category yet" choice -- not a real category id.
@@ -45,14 +52,12 @@ function AmountWithRefunds({ t }: { t: GriprTransaction }) {
         {t.type === "transfer" ? formatEur(t.amount) : formatEur(griprSignedAmount(t))}
       </span>
       {refunded > 0 && (
-        <span className="whitespace-nowrap text-xs text-on-surface-variant" title={`Net cost ${formatEur(parseFloat(t.amount) - refunded)}`}>
-          {formatEur(refunded)} back
-        </span>
+        <span className="whitespace-nowrap text-xs text-on-surface-variant" title={tr("Net cost {amount}", { amount: formatEur(parseFloat(t.amount) - refunded) })}>
+          {formatEur(refunded)}{" "}{tr("back")}</span>
       )}
       {parseFloat(t.outstanding) > 0 && (
-        <span className="whitespace-nowrap text-xs text-on-surface-variant" title={t.expected_from ? `Owed by ${t.expected_from}` : undefined}>
-          {formatEur(t.outstanding)} to come back
-        </span>
+        <span className="whitespace-nowrap text-xs text-on-surface-variant" title={t.expected_from ? tr("Owed by {name}", { name: t.expected_from }) : undefined}>
+          {formatEur(t.outstanding)}{" "}{tr("to come back")}</span>
       )}
     </span>
   );
@@ -61,8 +66,8 @@ function AmountWithRefunds({ t }: { t: GriprTransaction }) {
 /** For a linked refund's badge: what it came back for. */
 function refundTitle(t: GriprTransaction): string | undefined {
   if (!t.refund_of) return undefined;
-  const what = t.refund_of.notes || "expense";
-  return `Money back for ${what} (${formatEur(t.refund_of.amount)}, ${formatDate(t.refund_of.date)})`;
+  const what = t.refund_of.notes || tr("expense");
+  return tr("Money back for {what} ({amount}, {date})", { what, amount: formatEur(t.refund_of.amount), date: formatDate(t.refund_of.date) });
 }
 
 /** Splits a transaction's (possibly leaf-level) category into its top-level category and,
@@ -93,10 +98,8 @@ function PlannedRow({
       <Link to="/gripr/recurring" className="flex items-start justify-between gap-3 text-inherit no-underline hover:bg-on-surface/5 sm:items-center">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full border border-dashed border-outline px-2 py-0.5 text-xs font-medium text-on-surface-variant">
-              planned
-            </span>
-            <Repeat className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" strokeWidth={2} aria-label="From a recurring rule" />
+            <span className="rounded-full border border-dashed border-outline px-2 py-0.5 text-xs font-medium text-on-surface-variant">{tr("planned")}</span>
+            <Repeat className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" strokeWidth={2} aria-label={tr("From a recurring rule")} />
             <AccountBadge name={p.account_name ?? ""} account={accountsById.get(p.account_id)} />
             {p.counter_account_name && (
               <>
@@ -137,7 +140,25 @@ export default function GriprTransactions() {
   const [maxAmountInput, setMaxAmountInput] = useState("");
   const [minAmount, setMinAmount] = useState<string | undefined>(undefined);
   const [maxAmount, setMaxAmount] = useState<string | undefined>(undefined);
-  const [editing, setEditing] = useState<GriprTransaction | undefined | null>(null); // null = closed
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  // Typing settles for a moment before it searches, so each keystroke isn't a request.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+  // Select mode: a row tap ticks it instead of opening it, and the bulk bar acts on the ticked ones.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // A short line saying what the last bulk action or "file similar" did.
+  const [notice, setNotice] = useState<string | null>(null);
+  // Offered after categorising a bank-synced transaction: file the others from that counterparty too.
+  const [similarPrompt, setSimilarPrompt] = useState<{ id: number; count: number; counterparty: string; categoryName: string } | null>(null);
+  // null = closed. Vandaag's "+ Uitgave" links here with ?add=1, which opens the form for a new one.
+  const [editing, setEditing] = useState<GriprTransaction | undefined | null>(() => (searchParams.get("add") ? undefined : null));
   // Set = the open form is a new refund for this expense ("Got money back").
   const [refundOf, setRefundOf] = useState<GriprTransaction | undefined>(undefined);
   const closeForm = () => {
@@ -156,7 +177,7 @@ export default function GriprTransactions() {
   // to the top of a date-desc list and bury what actually happened recently -- they live in the
   // "Upcoming" card below instead, fetched separately so this list only ever shows the past.
   const transactionsQuery = useQuery({
-    queryKey: ["gripr-transactions", page, typeFilter, accountFilter, categoryFilter, minAmount, maxAmount],
+    queryKey: ["gripr-transactions", page, typeFilter, accountFilter, categoryFilter, minAmount, maxAmount, search],
     queryFn: () =>
       griprApi.listTransactions({
         offset: page * PAGE_SIZE,
@@ -168,8 +189,11 @@ export default function GriprTransactions() {
         amountMin: minAmount,
         amountMax: maxAmount,
         dateTo: today,
+        search: search || undefined,
       }),
   });
+  // A selection only ever spans what's on screen: changing the page or a filter starts afresh.
+  useEffect(() => setSelected(new Set()), [page, typeFilter, accountFilter, categoryFilter, minAmount, maxAmount, search]);
   // What recurring rules will still book through the end of the current period, beyond the
   // couple of days ahead they're actually pre-booked (see gripr_recurring_service). Keyed under
   // "gripr-transactions" so every mutation here that refreshes the list refreshes this too.
@@ -205,19 +229,79 @@ export default function GriprTransactions() {
   };
 
   const createMutation = useMutation({
-    mutationFn: (input: GriprTransactionInput) => griprApi.createTransaction(input),
-    onSuccess: () => {
+    mutationFn: ({ input, files }: { input: GriprTransactionInput; files: File[] }) =>
+      griprApi.createTransactionWithAttachments(input, files),
+    onSuccess: ({ failed }) => {
       invalidateAll();
       closeForm();
+      warnFailedAttachments(failed);
     },
   });
   const updateMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: GriprTransactionInput }) => griprApi.updateTransaction(id, input),
-    onSuccess: () => {
+    mutationFn: ({ id, input }: { id: number; input: GriprTransactionInput; previousCategoryId: number | null }) =>
+      griprApi.updateTransaction(id, input),
+    onSuccess: async (_updated, { id, input, previousCategoryId }) => {
       invalidateAll();
       closeForm();
+      if (input.category_id === null || input.category_id === previousCategoryId) return;
+      const similar = await griprApi.similarUncategorised(id).catch(() => null);
+      if (similar && similar.count > 0) {
+        const category = categoriesQuery.data?.find((c) => c.id === input.category_id);
+        setSimilarPrompt({
+          id,
+          count: similar.count,
+          counterparty: similar.counterparty ?? tr("this counterparty"),
+          categoryName: category?.name ?? tr("this category"),
+        });
+      }
     },
   });
+  const similarMutation = useMutation({
+    mutationFn: (id: number) => griprApi.applyCategoryToSimilar(id),
+    onSuccess: ({ updated }) => {
+      invalidateAll();
+      setSimilarPrompt(null);
+      setNotice(tp(updated, "Filed {n} more transaction.", "Filed {n} more transactions."));
+    },
+  });
+  const bulkMutation = useMutation({
+    mutationFn: (args: { action: "set_category" | "set_account" | "delete"; categoryId?: number; accountId?: number }) =>
+      griprApi.bulkTransactions([...selected], args.action, { categoryId: args.categoryId, accountId: args.accountId }),
+    onSuccess: ({ updated, skipped }, { action }) => {
+      invalidateAll();
+      setSelected(new Set());
+      const done =
+        action === "delete"
+          ? tr("Deleted {n}.", { n: updated })
+          : action === "set_account"
+            ? tr("Moved {n}.", { n: updated })
+            : tr("Filed {n}.", { n: updated });
+      const why =
+        action === "set_category"
+          ? tr("Skipped {n} (a transfer takes no category, and an income category only fits income).", { n: skipped })
+          : tr("Skipped {n} (a transfer can't move onto its own other side).", { n: skipped });
+      setNotice(skipped ? `${done} ${why}` : done);
+    },
+  });
+
+  function toggleSelected(id: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  // A row tap opens the transaction, or in select mode ticks it.
+  const onRowClick = (t: GriprTransaction) => (selectMode ? toggleSelected(t.id) : setEditing(t));
+
+  async function handleBulkDelete() {
+    const ok = await confirm({
+      title: tp(selected.size, "Delete {n} transaction?", "Delete {n} transactions?"),
+      description: tr("They are permanently removed. Refunds pointing at a deleted expense stay, without the link."),
+    });
+    if (ok) bulkMutation.mutate({ action: "delete" });
+  }
   const deleteMutation = useMutation({
     mutationFn: (id: number) => griprApi.deleteTransaction(id),
     onSuccess: invalidateAll,
@@ -225,13 +309,20 @@ export default function GriprTransactions() {
 
   async function handleDelete(t: GriprTransaction) {
     const ok = await confirm({
-      title: "Delete transaction?",
-      description: `This ${t.type} transaction from ${formatDate(t.date)} will be permanently removed.`,
+      title: tr("Delete transaction?"),
+      description: tr("This {type} transaction from {date} will be permanently removed.", {
+        type: griprTypeLabel(t.type).toLowerCase(),
+        date: formatDate(t.date),
+      }),
     });
-    if (ok) deleteMutation.mutate(t.id);
+    if (ok) {
+      deleteMutation.mutate(t.id);
+      closeForm();
+    }
   }
 
   const total = transactionsQuery.data?.total ?? 0;
+  const pageIds = (transactionsQuery.data?.items ?? []).map((t) => t.id);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const categoryColors = useMemo(() => buildCategoryColorMap(categoriesQuery.data ?? []), [categoriesQuery.data]);
   const accountsById = useMemo(
@@ -265,37 +356,35 @@ export default function GriprTransactions() {
   return (
     <div className="flex flex-col gap-4">
       <ModuleTopRow>
-        <a href="/api/gripr/transactions/export.csv" download className={`${secondaryButtonClass} no-underline`} aria-label="Export CSV">
+        <a href="/api/gripr/transactions/export.csv" download className={`${secondaryButtonClass} no-underline`} aria-label={tr("Export CSV")}>
           <span className="sm:hidden">CSV</span>
-          <span className="hidden sm:inline">Export CSV</span>
+          <span className="hidden sm:inline">{tr("Export CSV")}</span>
         </a>
         {/* On mobile this is the FAB's job instead (MobileFab, below) -- a thumb-reachable
             button beats one pinned to the top of a tall page. */}
-        <GriprButton onClick={() => setEditing(undefined)} className="hidden sm:inline-flex">
-          Add transaction
-        </GriprButton>
+        <GriprButton onClick={() => setEditing(undefined)} className="hidden sm:inline-flex">{tr("Add transaction")}</GriprButton>
       </ModuleTopRow>
-      <PageTitle>Transactions</PageTitle>
+      <PageTitle>{tr("Transactions")}</PageTitle>
 
       <CollapsibleCard
         storageKey="gripr-upcoming-recurring"
         defaultOpen={false}
-        title="Upcoming"
+        title={tr("Upcoming")}
         cardClassName="rounded-2xl border border-outline-variant bg-surface"
         meta={
           <span className="text-xs text-on-surface-variant">
             {upcomingQuery.data && plannedQuery.data
-              ? `${upcomingEntries.length} · until ${formatDate(plannedQuery.data.until)}`
+              ? tr("{count} · until {date}", { count: upcomingEntries.length, date: formatDate(plannedQuery.data.until) })
               : ""}
           </span>
         }
       >
         {upcomingQuery.isLoading || plannedQuery.isLoading ? (
-          <div className="py-2 text-sm text-on-surface-variant">Loading…</div>
+          <div className="py-2 text-sm text-on-surface-variant">{tr("Loading…")}</div>
         ) : upcomingQuery.isError || plannedQuery.isError ? (
-          <div className="py-2 text-sm text-error">Couldn't load what's coming up.</div>
+          <div className="py-2 text-sm text-error">{tr("Couldn't load what's coming up.")}</div>
         ) : upcomingEntries.length === 0 ? (
-          <div className="py-2 text-sm text-on-surface-variant">Nothing dated ahead of today, and no recurring rule due before the period ends.</div>
+          <div className="py-2 text-sm text-on-surface-variant">{tr("Nothing dated ahead of today, and no recurring rule due before the period ends.")}</div>
         ) : (
           <ul className="divide-y divide-outline-variant">
             {upcomingEntries.map((entry) => {
@@ -317,13 +406,14 @@ export default function GriprTransactions() {
               const badges = (
                 <>
                   <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${GRIPR_TYPE_BADGE[t.type]}`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${GRIPR_TYPE_BADGE[t.type]}`}
                           title={refundTitle(t)}
                         >
-                    {t.type}
+                    {griprTypeLabel(t.type)}
                   </span>
+                  <AttachmentBadge variant="gripr" count={t.attachment_count} />
                   {t.is_recurring && (
-                    <span title="From a recurring rule" aria-label="From a recurring rule">
+                    <span title={tr("From a recurring rule")} aria-label={tr("From a recurring rule")}>
                       <Repeat className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" strokeWidth={2} />
                     </span>
                   )}
@@ -346,19 +436,6 @@ export default function GriprTransactions() {
                   {t.type === "transfer" ? formatEur(t.amount) : formatEur(griprSignedAmount(t))}
                 </span>
               );
-              const deleteButton = (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(t);
-                  }}
-                  className="text-error hover:opacity-80"
-                  title="Delete"
-                  aria-label="Delete"
-                >
-                  <Trash2 className="h-4 w-4" strokeWidth={2} />
-                </button>
-              );
               return (
                 <li key={t.id} onClick={() => setEditing(t)} className="cursor-pointer py-2 text-sm hover:bg-on-surface/5">
                   {/* Tablet and up: one row, like the main list's desktop table. Below that, the
@@ -373,7 +450,6 @@ export default function GriprTransactions() {
                     <div className="flex shrink-0 items-center gap-3">
                       <span className="text-on-surface-variant">{formatDate(t.date)}</span>
                       {amount}
-                      {deleteButton}
                     </div>
                   </div>
                   <div className="flex items-start justify-between gap-3 sm:hidden">
@@ -388,7 +464,6 @@ export default function GriprTransactions() {
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">
                       {amount}
-                      {deleteButton}
                     </div>
                   </div>
                 </li>
@@ -399,8 +474,27 @@ export default function GriprTransactions() {
       </CollapsibleCard>
 
       <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+        <input
+          type="search"
+          aria-label={tr("Search transactions")}
+          placeholder={tr("Search…")}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          className={`w-40 ${chipClass}`}
+        />
+        <button
+          type="button"
+          aria-pressed={selectMode}
+          onClick={() => {
+            setSelectMode((on) => !on);
+            setSelected(new Set());
+          }}
+          className={`${chipClass} ${selectMode ? "border-primary text-primary" : ""}`}
+        >
+          {selectMode ? tr("Done") : tr("Select")}
+        </button>
         <select
-          aria-label="Type"
+          aria-label={tr("Type")}
           value={typeFilter}
           onChange={(e) => {
             setTypeFilter(e.target.value as GriprTransactionType | "");
@@ -408,15 +502,15 @@ export default function GriprTransactions() {
           }}
           className={chipClass}
         >
-          <option value="">All types</option>
+          <option value="">{tr("All types")}</option>
           {GRIPR_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
-              {o.label}
+              {tr(o.label)}
             </option>
           ))}
         </select>
         <select
-          aria-label="Account"
+          aria-label={tr("Account")}
           value={accountFilter}
           onChange={(e) => {
             setAccountFilter(e.target.value);
@@ -424,7 +518,7 @@ export default function GriprTransactions() {
           }}
           className={chipClass}
         >
-          <option value="">All accounts</option>
+          <option value="">{tr("All accounts")}</option>
           {(accountsQuery.data ?? []).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -432,7 +526,7 @@ export default function GriprTransactions() {
           ))}
         </select>
         <select
-          aria-label="Category"
+          aria-label={tr("Category")}
           value={categoryFilter}
           onChange={(e) => {
             setCategoryFilter(e.target.value);
@@ -440,8 +534,8 @@ export default function GriprTransactions() {
           }}
           className={chipClass}
         >
-          <option value="">All categories</option>
-          <option value={UNCATEGORIZED}>Uncategorized</option>
+          <option value="">{tr("All categories")}</option>
+          <option value={UNCATEGORIZED}>{tr("Uncategorized")}</option>
           {categoryOptions.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -449,9 +543,9 @@ export default function GriprTransactions() {
           ))}
         </select>
         <input
-          aria-label="Min amount"
+          aria-label={tr("Min amount")}
           inputMode="decimal"
-          placeholder="Min €"
+          placeholder={tr("Min €")}
           value={minAmountInput}
           onChange={(e) => setMinAmountInput(e.target.value)}
           onBlur={commitMinAmount}
@@ -461,9 +555,9 @@ export default function GriprTransactions() {
           className={`w-20 ${chipClass}`}
         />
         <input
-          aria-label="Max amount"
+          aria-label={tr("Max amount")}
           inputMode="decimal"
-          placeholder="Max €"
+          placeholder={tr("Max €")}
           value={maxAmountInput}
           onChange={(e) => setMaxAmountInput(e.target.value)}
           onBlur={commitMaxAmount}
@@ -472,7 +566,32 @@ export default function GriprTransactions() {
           }}
           className={`w-20 ${chipClass}`}
         />
+
       </div>
+
+      {similarPrompt && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-outline-variant bg-surface-container-high px-4 py-2.5 text-sm">
+          <span className="min-w-0 flex-1 text-on-surface">{tp(similarPrompt.count, "Also file {n} other uncategorised transaction", "Also file {n} other uncategorised transactions")}{" "}{tr("from")}{" "}
+            <span className="font-medium">{similarPrompt.counterparty}</span>{" "}{tr("under")}{" "}
+            <span className="font-medium">{similarPrompt.categoryName}</span>?
+          </span>
+          <button
+            type="button"
+            disabled={similarMutation.isPending}
+            onClick={() => similarMutation.mutate(similarPrompt.id)}
+            className="rounded-full border border-outline px-3 py-1 font-medium text-on-surface hover:bg-on-surface/10 disabled:opacity-40"
+          >{tr("File them")}</button>
+          <button type="button" onClick={() => setSimilarPrompt(null)} className="text-on-surface-variant hover:text-on-surface">{tr("Not now")}</button>
+        </div>
+      )}
+      {notice && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-outline-variant bg-surface px-4 py-2 text-sm text-on-surface">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="text-on-surface-variant hover:text-on-surface" aria-label={tr("Dismiss")}>
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-outline-variant bg-surface">
         {/* Tablet and up: a table. Below that, no column arrangement fits seven columns
@@ -482,26 +601,39 @@ export default function GriprTransactions() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-outline-variant text-left text-xs uppercase tracking-wide text-on-surface-variant">
-                <th className="px-4 py-2 font-medium">Date</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium">Account</th>
-                <th className="px-4 py-2 font-medium">Category</th>
-                <th className="px-4 py-2 font-medium">Subcategory</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
-                <th className="px-4 py-2 font-medium"></th>
+                {selectMode && (
+                  <th className="w-8 py-2 pl-4">
+                    <input
+                      type="checkbox"
+                      aria-label={tr("Select all on this page")}
+                      checked={pageIds.length > 0 && pageIds.every((id) => selected.has(id))}
+                      onChange={(e) => setSelected(e.target.checked ? new Set(pageIds) : new Set())}
+                    />
+                  </th>
+                )}
+                <th className="px-4 py-2 font-medium">{tr("Date")}</th>
+                <th className="px-4 py-2 font-medium">{tr("Type")}</th>
+                <th className="px-4 py-2 font-medium">{tr("Account")}</th>
+                <th className="px-4 py-2 font-medium">{tr("Category")}</th>
+                <th className="px-4 py-2 font-medium">{tr("Subcategory")}</th>
+                <th className="px-4 py-2 text-right font-medium">{tr("Amount")}</th>
               </tr>
             </thead>
             <tbody>
               {transactionsQuery.isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-on-surface-variant">
-                    Loading…
+                  <td colSpan={selectMode ? 7 : 6} className="px-4 py-6 text-center text-on-surface-variant">{tr("Loading…")}</td>
+                </tr>
+              ) : transactionsQuery.isError ? (
+                <tr>
+                  <td colSpan={selectMode ? 7 : 6} className="px-4 py-6 text-center">
+                    <QueryError message={tr(LOAD_ERROR)} onRetry={() => transactionsQuery.refetch()} />
                   </td>
                 </tr>
               ) : transactionsQuery.data?.items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-on-surface-variant">
-                    No transactions
+                  <td colSpan={selectMode ? 7 : 6} className="px-4 py-6 text-center text-on-surface-variant">
+                    {search ? tr("Nothing matches \"{search}\"", { search }) : tr("No transactions")}
                   </td>
                 </tr>
               ) : (
@@ -510,20 +642,26 @@ export default function GriprTransactions() {
                   return (
                     <tr
                       key={t.id}
-                      onClick={() => setEditing(t)}
-                      className="cursor-pointer border-b border-outline-variant last:border-0 hover:bg-on-surface/5"
+                      onClick={() => onRowClick(t)}
+                      className={`cursor-pointer border-b border-outline-variant last:border-0 hover:bg-on-surface/5 ${selected.has(t.id) ? "bg-primary/10" : ""}`}
                     >
+                      {selectMode && (
+                        <td className="py-2 pl-4" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" aria-label={tr("Select")} checked={selected.has(t.id)} onChange={() => toggleSelected(t.id)} />
+                        </td>
+                      )}
                       <td className="px-4 py-2 whitespace-nowrap text-on-surface-variant">{formatDate(t.date)}</td>
                       <td className="px-4 py-2">
                         <span className="flex items-center gap-1.5">
                           <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${GRIPR_TYPE_BADGE[t.type]}`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${GRIPR_TYPE_BADGE[t.type]}`}
                           title={refundTitle(t)}
                         >
-                            {t.type}
+                            {griprTypeLabel(t.type)}
                           </span>
+                          <AttachmentBadge variant="gripr" count={t.attachment_count} />
                           {t.is_recurring && (
-                            <span title="From a recurring rule" aria-label="From a recurring rule">
+                            <span title={tr("From a recurring rule")} aria-label={tr("From a recurring rule")}>
                               <Repeat className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" strokeWidth={2} />
                             </span>
                           )}
@@ -560,43 +698,6 @@ export default function GriprTransactions() {
                       <td className="px-4 py-2 text-right">
                         <AmountWithRefunds t={t} />
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-right">
-                        {t.type === "expense" && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openRefund(t);
-                            }}
-                            className="mr-3 text-on-surface-variant hover:text-on-surface"
-                            title="Got money back"
-                            aria-label="Got money back"
-                          >
-                            <Undo2 className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditing(t);
-                          }}
-                          className="text-on-surface-variant hover:text-on-surface"
-                          title="Edit"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(t);
-                          }}
-                          className="ml-3 text-error hover:opacity-80"
-                          title="Delete"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                      </td>
                     </tr>
                   );
                 })
@@ -607,9 +708,11 @@ export default function GriprTransactions() {
 
         <div className="divide-y divide-outline-variant sm:hidden">
           {transactionsQuery.isLoading ? (
-            <div className="px-4 py-6 text-center text-on-surface-variant">Loading…</div>
+            <div className="px-4 py-6 text-center text-on-surface-variant">{tr("Loading…")}</div>
+          ) : transactionsQuery.isError ? (
+            <QueryError className="px-4 py-6 text-center" message={tr(LOAD_ERROR)} onRetry={() => transactionsQuery.refetch()} />
           ) : transactionsQuery.data?.items.length === 0 ? (
-            <div className="px-4 py-6 text-center text-on-surface-variant">No transactions</div>
+            <div className="px-4 py-6 text-center text-on-surface-variant">{search ? tr("Nothing matches \"{search}\"", { search }) : tr("No transactions")}</div>
           ) : (
             transactionsQuery.data?.items.map((t) => {
               const { top, sub } = resolveCategory(t.category_id, categoriesById);
@@ -618,9 +721,19 @@ export default function GriprTransactions() {
               return (
                 <div
                   key={t.id}
-                  onClick={() => setEditing(t)}
-                  className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-on-surface/5"
+                  onClick={() => onRowClick(t)}
+                  className={`flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-on-surface/5 ${selected.has(t.id) ? "bg-primary/10" : ""}`}
                 >
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      aria-label={tr("Select")}
+                      checked={selected.has(t.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleSelected(t.id)}
+                      className="mt-3 h-4 w-4 shrink-0"
+                    />
+                  )}
                   <span
                     className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
                     style={{ backgroundColor: avatarColor }}
@@ -630,13 +743,14 @@ export default function GriprTransactions() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${GRIPR_TYPE_BADGE[t.type]}`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${GRIPR_TYPE_BADGE[t.type]}`}
                           title={refundTitle(t)}
                         >
-                        {t.type}
+                        {griprTypeLabel(t.type)}
                       </span>
+                      <AttachmentBadge variant="gripr" count={t.attachment_count} />
                       {t.is_recurring && (
-                        <span title="From a recurring rule" aria-label="From a recurring rule">
+                        <span title={tr("From a recurring rule")} aria-label={tr("From a recurring rule")}>
                           <Repeat className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" strokeWidth={2} />
                         </span>
                       )}
@@ -661,43 +775,6 @@ export default function GriprTransactions() {
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
                     <AmountWithRefunds t={t} />
-                    <div className="flex items-center gap-3">
-                      {t.type === "expense" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openRefund(t);
-                          }}
-                          className="text-on-surface-variant hover:text-on-surface"
-                          title="Got money back"
-                          aria-label="Got money back"
-                        >
-                          <Undo2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditing(t);
-                        }}
-                        className="text-on-surface-variant hover:text-on-surface"
-                        title="Edit"
-                        aria-label="Edit"
-                      >
-                        <Pencil className="h-4 w-4" strokeWidth={2} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(t);
-                        }}
-                        className="text-error hover:opacity-80"
-                        title="Delete"
-                        aria-label="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" strokeWidth={2} />
-                      </button>
-                    </div>
                   </div>
                 </div>
               );
@@ -707,28 +784,36 @@ export default function GriprTransactions() {
 
         <div className="flex items-center justify-between border-t border-outline-variant px-4 py-3 text-sm text-on-surface-variant">
           <span>
-            {total} transactions — page {page + 1} of {totalPages}
-          </span>
+            {tr("{n} transactions — page {page} of {totalPages}", { n: total, page: page + 1, totalPages })}</span>
           <div className="flex gap-2">
             <button
               disabled={page === 0}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               className="rounded-full border border-outline px-3 py-1 disabled:opacity-40"
-            >
-              Prev
-            </button>
+            >{tr("Prev")}</button>
             <button
               disabled={page + 1 >= totalPages}
               onClick={() => setPage((p) => p + 1)}
               className="rounded-full border border-outline px-3 py-1 disabled:opacity-40"
-            >
-              Next
-            </button>
+            >{tr("Next")}</button>
           </div>
         </div>
       </div>
 
-      <MobileFab label="Add" onClick={() => setEditing(undefined)} />
+      {selectMode && selected.size > 0 && (
+        <TransactionBulkBar
+          count={selected.size}
+          categories={categoriesQuery.data ?? []}
+          accounts={accountsQuery.data ?? []}
+          busy={bulkMutation.isPending}
+          onSetCategory={(categoryId) => bulkMutation.mutate({ action: "set_category", categoryId })}
+          onSetAccount={(accountId) => bulkMutation.mutate({ action: "set_account", accountId })}
+          onDelete={handleBulkDelete}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+
+      {!selectMode && <MobileFab label={tr("Add")} onClick={() => setEditing(undefined)} />}
 
       {editing !== null && (
         <GriprTransactionForm
@@ -740,13 +825,14 @@ export default function GriprTransactions() {
           initial={editing}
           refundOf={refundOf}
           onAddRefund={openRefund}
+          onDelete={handleDelete}
           isSubmitting={createMutation.isPending || updateMutation.isPending}
           onCancel={closeForm}
-          onSubmit={(input) => {
+          onSubmit={(input, files) => {
             if (editing) {
-              updateMutation.mutate({ id: editing.id, input });
+              updateMutation.mutate({ id: editing.id, input, previousCategoryId: editing.category_id });
             } else {
-              createMutation.mutate(input);
+              createMutation.mutate({ input, files });
             }
           }}
         />

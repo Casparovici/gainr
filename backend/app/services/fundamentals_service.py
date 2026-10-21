@@ -21,18 +21,22 @@ from app.schemas.fundamentals import (
     NewsItemOut,
     NewsOut,
     NewsSourceOut,
+    PositionMetricOut,
+    PositionMetricsOut,
 )
-from app.services import news_sources
+from app.services import fundamentals_metrics, news_sources
 from app.services.fundamentals_provider import FundamentalsProvider, NewsItem, YFinanceFundamentalsProvider
 
 NEWS_KIND = "news"
 FINANCIALS_KIND = "financials"
+METRICS_KIND = "metrics"
 
 NEWS_TTL = timedelta(hours=3)
 # Bumped when the provider's news feed changes, so a cache filled from the old one -- empty,
 # when Yahoo retired the endpoint yfinance used -- is refetched rather than served for its TTL.
 NEWS_FEED = 2
 FINANCIALS_TTL = timedelta(days=1)
+METRICS_TTL = timedelta(days=1)
 
 # The card promises "the past week" and says so on screen.
 NEWS_WINDOW_DAYS = 7
@@ -124,6 +128,28 @@ class FundamentalsService:
             ),
         )
         self._store(db, asset, FINANCIALS_KIND, out.model_dump(mode="json"))
+        return out
+
+    def get_metrics(self, db: Session, asset: Asset) -> PositionMetricsOut:
+        """The position's analyst checklist (see fundamentals_metrics). A position without one
+        answers empty and fetches nothing."""
+        profile = fundamentals_metrics.profile_for(asset.yahoo_symbol)
+        if profile is None:
+            return PositionMetricsOut(lens=None, currency=None, metrics=[])
+        cached = self._cached(db, asset, METRICS_KIND, METRICS_TTL)
+        if cached is not None:
+            try:
+                return PositionMetricsOut(**cached)
+            except ValidationError:
+                pass
+        inputs = self.provider.get_metric_inputs(asset.yahoo_symbol, profile.kind, profile.price_symbols)
+        built = fundamentals_metrics.build_metrics(profile, inputs)
+        out = PositionMetricsOut(
+            lens=built.lens,
+            currency=built.currency,
+            metrics=[PositionMetricOut.model_validate(m) for m in built.metrics],
+        )
+        self._store(db, asset, METRICS_KIND, out.model_dump(mode="json"))
         return out
 
     @staticmethod

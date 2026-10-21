@@ -1,5 +1,7 @@
+import { uploadAll } from "../utils/attachments";
 import type {
   AppNotification,
+  AttachmentSource,
   NewsSourceCatalog,
   CalendarEvent,
   PositionCalendar,
@@ -7,22 +9,24 @@ import type {
   Asset,
   AssetCreateInput,
   AssetFinancials,
+  PositionMetrics,
+  PriceChart,
+  PriceChartRange,
   AssetNews,
   Benchmark,
   BrokerStatus,
+  DividendIncome,
+  RebalancePlan,
   BrokerSyncResult,
-  JournalNoteInput,
   Performance,
   PerformanceRange,
   Portfolio,
   Position,
-  PositionNote,
-  PositionNoteInput,
-  PositionNoteLabel,
   ClosedPosition,
   Summary,
   SymbolLookup,
   Transaction,
+  TransactionAttachment,
   TransactionInput,
   TransactionPage,
   TransactionType,
@@ -58,6 +62,11 @@ export const api = {
     return request<Performance>(`/performance?${q.toString()}`);
   },
   listBenchmarks: () => request<Benchmark[]>("/performance/benchmarks"),
+  getDividendIncome: (portfolioId: number) => request<DividendIncome>(`/income/dividends?portfolio_id=${portfolioId}`),
+  getRebalancePlan: (portfolioId: number, amountEur: string, fromCash: boolean) =>
+    request<RebalancePlan>(
+      `/positions/rebalance?${new URLSearchParams({ portfolio_id: String(portfolioId), amount_eur: amountEur, from_cash: String(fromCash) })}`,
+    ),
 
   listTransactions: (params: {
     portfolioId: number;
@@ -71,6 +80,7 @@ export const api = {
     broker?: string;
     dateFrom?: string;
     dateTo?: string;
+    cashMovements?: boolean;
   }) => {
     const q = new URLSearchParams({ portfolio_id: String(params.portfolioId) });
     if (params.offset !== undefined) q.set("offset", String(params.offset));
@@ -83,6 +93,7 @@ export const api = {
     if (params.broker) q.set("broker", params.broker);
     if (params.dateFrom) q.set("date_from", params.dateFrom);
     if (params.dateTo) q.set("date_to", params.dateTo);
+    if (params.cashMovements) q.set("cash_movements", "true");
     return request<TransactionPage>(`/transactions?${q.toString()}`);
   },
   listBrokers: (portfolioId: number) => request<string[]>(`/transactions/brokers?portfolio_id=${portfolioId}`),
@@ -92,11 +103,41 @@ export const api = {
     request<Transaction>(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteTransaction: (id: number) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
+  // -- a transaction's attachments (invoices): their own multipart action, not part of the JSON
+  // create/update above, like gardnr's log photo.
+  transactionAttachments: {
+    key: "gainr",
+    invalidates: [["transactions"], ["asset-transactions"]],
+    list: (transactionId: number) => request<TransactionAttachment[]>(`/transactions/${transactionId}/attachments`),
+    upload: (transactionId: number, file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return fetch(`/api/transactions/${transactionId}/attachments`, { method: "POST", body }).then(async (res) => {
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => "")}`);
+        return res.json() as Promise<TransactionAttachment>;
+      });
+    },
+    remove: (transactionId: number, attachmentId: number) =>
+      request<void>(`/transactions/${transactionId}/attachments/${attachmentId}`, { method: "DELETE" }),
+    url: (transactionId: number, attachmentId: number) => `/api/transactions/${transactionId}/attachments/${attachmentId}`,
+  } satisfies AttachmentSource,
+  /** A new transaction with the files picked in the form: the transaction first, then each file.
+   * A file that's refused doesn't undo the transaction -- it comes back in `failed` for the caller to report. */
+  createTransactionWithAttachments: async (input: TransactionInput, files: File[]) => {
+    const transaction = await api.createTransaction(input);
+    return { transaction, failed: await uploadAll(api.transactionAttachments, transaction.id, files) };
+  },
+
   getAssetNews: (assetId: number) => request<AssetNews>(`/assets/${assetId}/news`),
   updateNewsSources: (assetId: number, sources: string[]) =>
     request<AssetNews>(`/assets/${assetId}/news-sources`, { method: "PUT", body: JSON.stringify({ sources }) }),
   getNewsSourceCatalog: () => request<NewsSourceCatalog>("/news-sources/catalog"),
   getAssetFinancials: (assetId: number) => request<AssetFinancials>(`/assets/${assetId}/financials`),
+
+  getAssetMetrics: (assetId: number) => request<PositionMetrics>(`/assets/${assetId}/metrics`),
+  /** A position's own price over a range, in its trading currency (docs/adr/0053). */
+  getPriceChart: (assetId: number, range: PriceChartRange) =>
+    request<PriceChart>(`/assets/${assetId}/prices?range=${range}`),
 
   getPositionCalendar: (assetId: number) => request<PositionCalendar>(`/assets/${assetId}/calendar`),
   createPositionEvent: (assetId: number, input: PositionEventInput) =>
@@ -105,30 +146,6 @@ export const api = {
     request<CalendarEvent>(`/assets/${assetId}/events/${eventId}`, { method: "PUT", body: JSON.stringify(input) }),
   deletePositionEvent: (assetId: number, eventId: number) =>
     request<void>(`/assets/${assetId}/events/${eventId}`, { method: "DELETE" }),
-
-  listPositionNotes: (assetId: number) => request<PositionNote[]>(`/assets/${assetId}/notes`),
-  createPositionNote: (assetId: number, input: PositionNoteInput) =>
-    request<PositionNote>(`/assets/${assetId}/notes`, { method: "POST", body: JSON.stringify(input) }),
-  updatePositionNote: (assetId: number, noteId: number, input: Partial<PositionNoteInput>) =>
-    request<PositionNote>(`/assets/${assetId}/notes/${noteId}`, { method: "PUT", body: JSON.stringify(input) }),
-  deletePositionNote: (assetId: number, noteId: number) =>
-    request<void>(`/assets/${assetId}/notes/${noteId}`, { method: "DELETE" }),
-
-  // -- journal (cross-position notes + labels; same rows as the position notes above) --------
-  listJournalNotes: () => request<PositionNote[]>("/journal/notes"),
-  createJournalNote: (input: JournalNoteInput) =>
-    request<PositionNote>("/journal/notes", { method: "POST", body: JSON.stringify(input) }),
-  updateJournalNote: (noteId: number, input: Partial<JournalNoteInput>) =>
-    request<PositionNote>(`/journal/notes/${noteId}`, { method: "PUT", body: JSON.stringify(input) }),
-  deleteJournalNote: (noteId: number) => request<void>(`/journal/notes/${noteId}`, { method: "DELETE" }),
-  listPositionNoteLabels: (includeArchived = false) =>
-    request<PositionNoteLabel[]>(`/journal/labels?include_archived=${includeArchived}`),
-  createPositionNoteLabel: (name: string) =>
-    request<PositionNoteLabel>("/journal/labels", { method: "POST", body: JSON.stringify({ name }) }),
-  updatePositionNoteLabel: (id: number, input: { name?: string; color?: string | null; is_archived?: boolean }) =>
-    request<PositionNoteLabel>(`/journal/labels/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-  reorderPositionNoteLabels: (labelIds: number[]) =>
-    request<void>("/journal/labels/reorder", { method: "PUT", body: JSON.stringify({ label_ids: labelIds }) }),
 
   listAssets: () => request<Asset[]>("/assets"),
   createAsset: (input: AssetCreateInput) => request<Asset>("/assets", { method: "POST", body: JSON.stringify(input) }),
@@ -143,7 +160,7 @@ export const api = {
   listNotifications: (since: string | null) =>
     request<AppNotification[]>(`/brokers/notifications${since ? `?since=${encodeURIComponent(since)}` : ""}`),
   getTrading212: () => request<BrokerStatus>("/brokers/trading212"),
-  updateTrading212: (input: { enabled: boolean; since?: string | null; portfolio_id?: number | null }) =>
+  updateTrading212: (input: { enabled: boolean; since?: string | null; portfolio_id?: number | null; cashback_account_id?: number | null }) =>
     request<BrokerStatus>("/brokers/trading212", { method: "PUT", body: JSON.stringify(input) }),
   syncTrading212: () => request<BrokerSyncResult>("/brokers/trading212/sync", { method: "POST" }),
   updateCashTargetWeight: (portfolioId: number, targetWeightPct: string | null) =>

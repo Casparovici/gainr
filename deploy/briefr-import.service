@@ -1,0 +1,26 @@
+[Unit]
+Description=Pull the agents repository and import new briefr reports
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gainr/backend
+# GAINR_BRIEFR_REPO_DIR, among the app's other settings.
+EnvironmentFile=-/etc/gainr/env
+Environment=GAINR_BRIEFR_REPO_DIR=/var/lib/gainr/agents
+# The agents repository's deploy key (docs/adr/0044): readable by gainr only, and good for that one
+# repository, nothing else on GitHub.
+Environment="GIT_SSH_COMMAND=ssh -i /etc/gainr/agents-deploy-key -o IdentitiesOnly=yes -o UserKnownHostsFile=/var/lib/gainr/known_hosts -o StrictHostKeyChecking=accept-new"
+ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.import_briefr_reports --pull
+
+# Same user and sandbox as gainr.service, so files the database creates (its -wal and -shm) are
+# always the app's to open. The checkout lives in gainr's state directory.
+User=gainr
+Group=gainr
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/gainr/backend
+StateDirectory=gainr

@@ -2,46 +2,52 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../api/client";
-import type { Position, PositionNote } from "../api/types";
+import { notrApi } from "../api/notrClient";
+import type { NotrLabel, NotrNote } from "../api/notrTypes";
 import Journal from "./Journal";
 
-vi.mock("../api/client", () => ({
-  api: {
-    listJournalNotes: vi.fn(),
-    listPositionNoteLabels: vi.fn(),
-    createPositionNoteLabel: vi.fn(),
-    getPositions: vi.fn(),
-    createJournalNote: vi.fn(),
-    updateJournalNote: vi.fn(),
-    deleteJournalNote: vi.fn(),
-  },
+vi.mock("../api/notrClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/notrClient")>()),
+  notrApi: { listNotes: vi.fn(), listLabels: vi.fn(), deleteNote: vi.fn() },
 }));
 vi.mock("../hooks/usePortfolio", () => ({
   usePortfolio: () => ({ portfolioId: 1, portfolios: [{ id: 1, name: "Main" }], setPortfolioId: vi.fn(), isLoading: false }),
+  useSelectedPortfolioId: () => 1,
+}));
+// The form has its own tests; here it only has to be opened with the right props.
+vi.mock("../components/notr/NoteForm", () => ({
+  default: ({ note, requireAsset, onCancel, onSaved }: { note?: NotrNote; requireAsset?: boolean; onCancel: () => void; onSaved: (n: NotrNote) => void }) => (
+    <div data-testid="note-form" data-require-asset={String(!!requireAsset)} data-note={note?.id ?? "new"}>
+      <button type="button" onClick={onCancel}>cancel form</button>
+      <button type="button" onClick={() => onSaved({} as NotrNote)}>saved form</button>
+    </div>
+  ),
 }));
 
-function position(asset_id: number, ticker: string, name: string): Position {
-  return { asset_id, ticker, name } as Position;
-}
-
-const sharedNote: PositionNote = {
+const note = (over: Partial<NotrNote>): NotrNote => ({
   id: 7,
+  title: "Cloud capex",
+  body: "Everyone is **spending**.",
+  pinned: false,
+  is_archived: false,
+  created_at: "2026-09-30T10:00:00Z",
+  updated_at: "2026-09-30T10:00:00Z",
   assets: [
     { id: 1, ticker: "AMZN", name: "Amazon.com Inc" },
     { id: 9, ticker: "MSFT", name: "Microsoft Corp" },
   ],
-  title: "Cloud capex",
-  body: "Everyone is spending.",
-  created_at: "2026-09-30T10:00:00Z",
-  updated_at: "2026-09-30T10:00:00Z",
+  plants: [],
+  recipes: [],
   labels: [],
-};
+  ...over,
+});
+
+const label = (id: number, name: string): NotrLabel => ({ id, name, sort_order: id, color: null, is_archived: false });
 
 function renderJournal() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
@@ -54,58 +60,93 @@ function renderJournal() {
 describe("Journal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.listJournalNotes).mockResolvedValue([sharedNote]);
-    vi.mocked(api.listPositionNoteLabels).mockResolvedValue([]);
-    vi.mocked(api.getPositions).mockResolvedValue([
-      position(1, "AMZN", "Amazon.com Inc"),
-      position(2, "GOOGL", "Alphabet Inc Class A"),
-      position(0, "CASH", "Cash"),
-    ]);
-    vi.mocked(api.createJournalNote).mockResolvedValue(sharedNote);
-    vi.mocked(api.updateJournalNote).mockResolvedValue(sharedNote);
+    vi.mocked(notrApi.listNotes).mockResolvedValue([note({})]);
+    vi.mocked(notrApi.listLabels).mockResolvedValue([]);
+    vi.mocked(notrApi.deleteNote).mockResolvedValue(undefined);
   });
+  afterEach(() => vi.restoreAllMocks());
 
-  it("shows every position a note is linked to", async () => {
+  it("lists only the notes about positions, and shows every position a note is linked to", async () => {
     renderJournal();
     const tile = (await screen.findByText("Cloud capex")).closest("article")!;
-    expect(within(tile).getByRole("link", { name: "AMZN" })).toHaveAttribute("href", "/?position=1");
-    expect(within(tile).getByRole("link", { name: "MSFT" })).toHaveAttribute("href", "/?position=9");
+    expect(notrApi.listNotes).toHaveBeenCalledWith({ positionsOnly: true });
+    expect(within(tile).getByRole("link", { name: "AMZN" })).toHaveAttribute("href", "/gainr?position=1");
+    expect(within(tile).getByRole("link", { name: "MSFT" })).toHaveAttribute("href", "/gainr?position=9");
+    // The body is Markdown.
+    expect(within(tile).getByText("spending").tagName).toBe("STRONG");
   });
 
-  it("links a new journal item to several positions via checkboxes", async () => {
+  it("shows an untitled note by its body, and names it by the first line when deleting", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(notrApi.listNotes).mockResolvedValue([note({ title: "", body: "## Why I own it\n\nCheap.", assets: [{ id: 1, ticker: "AMZN", name: "Amazon.com Inc" }] })]);
+    renderJournal();
+    const tile = (await screen.findByText("Cheap.")).closest("article")!;
+    expect(within(tile).getAllByRole("heading")).toHaveLength(1);
+    await userEvent.click(within(tile).getByRole("button", { name: "Delete" }));
+    expect(confirmSpy).toHaveBeenCalledWith("Delete “Why I own it”?");
+  });
+
+  it("filters by label", async () => {
+    vi.mocked(notrApi.listLabels).mockResolvedValue([label(1, "Thesis"), label(2, "Watch")]);
+    vi.mocked(notrApi.listNotes).mockResolvedValue([
+      note({ id: 1, title: "A thesis", labels: [label(1, "Thesis")] }),
+      note({ id: 2, title: "Just watching", labels: [label(2, "Watch")] }),
+    ]);
+    renderJournal();
+    await screen.findByText("A thesis");
+    await userEvent.click(screen.getByRole("button", { name: "Watch" }));
+    expect(screen.queryByText("A thesis")).not.toBeInTheDocument();
+    expect(screen.getByText("Just watching")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Thesis" }));
+    await userEvent.click(screen.getByRole("button", { name: "Watch" }));
+    expect(screen.getByText("Just watching")).toBeInTheDocument();
+  });
+
+  it("opens the note form in a sheet, with a position required, to add and to edit", async () => {
     renderJournal();
     await userEvent.click(await screen.findByRole("button", { name: "+ Add journal item" }));
-    await userEvent.type(screen.getByPlaceholderText("Title"), "Big tech");
-    await userEvent.type(screen.getByPlaceholderText(/What's on your mind/), "Both cheap.");
+    const dialog = screen.getByRole("dialog", { name: "Add journal item" });
+    expect(within(dialog).getByTestId("note-form")).toHaveAttribute("data-require-asset", "true");
+    expect(within(dialog).getByTestId("note-form")).toHaveAttribute("data-note", "new");
+    await userEvent.click(within(dialog).getByRole("button", { name: "saved form" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save).toBeDisabled();
-    expect(screen.queryByRole("checkbox", { name: /CASH/ })).not.toBeInTheDocument();
-
-    await userEvent.click(await screen.findByRole("checkbox", { name: /AMZN/ }));
-    await userEvent.click(screen.getByRole("checkbox", { name: /GOOGL/ }));
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
-    await userEvent.click(save);
-
-    await waitFor(() =>
-      expect(api.createJournalNote).toHaveBeenCalledWith({ title: "Big tech", body: "Both cheap.", label_ids: [], asset_ids: [1, 2] }),
-    );
+    const tile = screen.getByText("Cloud capex").closest("article")!;
+    await userEvent.click(within(tile).getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("dialog", { name: "Edit journal item" })).toBeInTheDocument();
+    expect(screen.getByTestId("note-form")).toHaveAttribute("data-note", "7");
+    await userEvent.click(screen.getByRole("button", { name: "cancel form" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("keeps a link to a position outside this portfolio when editing", async () => {
+  it("names the other positions in the delete confirmation, and deletes once confirmed", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderJournal();
     const tile = (await screen.findByText("Cloud capex")).closest("article")!;
-    await userEvent.click(within(tile).getByRole("button", { name: "Edit" }));
+    await userEvent.click(within(tile).getByRole("button", { name: "Delete" }));
+    expect(confirmSpy).toHaveBeenCalledWith("Delete “Cloud capex”? It's linked to AMZN, MSFT.");
+    await waitFor(() => expect(notrApi.deleteNote).toHaveBeenCalledWith(7));
+  });
 
-    const msft = await screen.findByRole("checkbox", { name: /MSFT/ });
-    expect(msft).toBeChecked();
-    expect(screen.getByText("(not in this portfolio)")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /AMZN/ })).toBeChecked();
+  it("does not delete when the confirmation is declined", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderJournal();
+    const tile = (await screen.findByText("Cloud capex")).closest("article")!;
+    await userEvent.click(within(tile).getByRole("button", { name: "Delete" }));
+    expect(notrApi.deleteNote).not.toHaveBeenCalled();
+  });
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /GOOGL/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() =>
-      expect(api.updateJournalNote).toHaveBeenCalledWith(7, expect.objectContaining({ asset_ids: [1, 9, 2] })),
-    );
+  it("says when there are no entries yet", async () => {
+    vi.mocked(notrApi.listNotes).mockResolvedValue([]);
+    renderJournal();
+    expect(await screen.findByText(/No journal entries yet/)).toBeInTheDocument();
+  });
+
+  it("offers a retry when the journal can't be loaded", async () => {
+    vi.mocked(notrApi.listNotes).mockRejectedValueOnce(new Error("500")).mockResolvedValue([note({})]);
+    renderJournal();
+    expect(await screen.findByText("Couldn't load the journal.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Cloud capex")).toBeInTheDocument();
   });
 });

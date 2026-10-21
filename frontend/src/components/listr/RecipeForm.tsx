@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Camera, ImagePlus, Trash2 } from "lucide-react";
 
 import { listrApi } from "../../api/listrClient";
 import type { ListrItem, ListrRecipe, ListrRecipeInput } from "../../api/listrTypes";
 import { decimalInputToApi, formatQuantity } from "../../utils/format";
 import ModalOverlay from "../ModalOverlay";
 import AddItemCombobox from "./AddItemCombobox";
+import { secondaryButtonClass } from "../ui/kit";
+import { QueryError } from "../ui/QueryError";
+import RecipePhoto from "./RecipePhoto";
+import { t } from "../../i18n";
 
 const inputClass =
   "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -46,7 +50,8 @@ export default function RecipeForm({
   initial: ListrRecipe | undefined;
   isSubmitting: boolean;
   onCancel: () => void;
-  onSubmit: (input: ListrRecipeInput) => void;
+  /** `photo` is a newly chosen file; `removePhoto` asks to drop the current one (ignored when a file is chosen). */
+  onSubmit: (input: ListrRecipeInput, photo: File | null, removePhoto: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -56,8 +61,21 @@ export default function RecipeForm({
   const [rows, setRows] = useState<IngredientRow[]>(() => toRows(initial));
   const [categoryIds, setCategoryIds] = useState<number[]>(() => (initial?.categories ?? []).map((c) => c.id));
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
+  // Object URL for the chosen file, revoked when it changes or the form closes.
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(photo);
+    setPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
 
-  const { data: categories } = useQuery({
+  const { data: categories, isError: categoriesError, refetch: refetchCategories } = useQuery({
     queryKey: ["listr-recipe-categories"],
     queryFn: () => listrApi.listRecipeCategories(),
   });
@@ -103,20 +121,28 @@ export default function RecipeForm({
         unit: row.unit,
       })),
       category_ids: categoryIds,
-    });
+    }, photo, removePhoto);
   }
+
+  function choosePhoto(file: File | undefined) {
+    if (!file) return;
+    setPhoto(file);
+    setRemovePhoto(false);
+  }
+  const hasCurrentPhoto = !!initial?.has_photo && !removePhoto;
+  const showsPhoto = photoPreview !== null || hasCurrentPhoto;
 
   return (
     <ModalOverlay onClose={onCancel} cardClassName="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg bg-white p-5 shadow-lg">
-      <h2 className="text-base font-semibold text-slate-900">{initial ? "Recept bewerken" : "Nieuw recept"}</h2>
+      <h2 className="text-base font-semibold text-slate-900">{initial ? t("Recept bewerken") : t("Nieuw recept")}</h2>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-1 flex-col gap-4 overflow-y-auto">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Titel</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Titel")}</span>
             <input required autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Aantal personen</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Aantal personen")}</span>
             <input
               type="number"
               min={1}
@@ -128,7 +154,7 @@ export default function RecipeForm({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Categorieën</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Categorieën")}</span>
           <div className="flex flex-wrap items-center gap-1.5">
             {(categories ?? []).map((category) => {
               const selected = categoryIds.includes(category.id);
@@ -159,14 +185,49 @@ export default function RecipeForm({
                   createCategoryMutation.mutate(newCategoryName.trim());
                 }
               }}
-              placeholder="+ nieuwe categorie…"
+              placeholder={t("+ nieuwe categorie…")}
               className={`${inputClass} w-36`}
             />
+            {categoriesError && (
+              <QueryError className="text-sm" message={t("Categorieën laden mislukt.")} onRetry={() => refetchCategories()} retryLabel={t("Opnieuw")} />
+            )}
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Ingrediënten</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Foto")}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            {photoPreview ? (
+              <img src={photoPreview} alt={t("Gekozen foto")} className="h-20 w-20 rounded-xl object-cover" />
+            ) : (
+              initial && <RecipePhoto recipe={removePhoto ? { ...initial, has_photo: false } : initial} className="h-20 w-20 rounded-xl" />
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Two inputs rather than one: `capture` sends a phone straight to the camera, which
+                  would otherwise hide the gallery for a photo that already exists. */}
+              <label className={`cursor-pointer ${secondaryButtonClass}`}>
+                <Camera className="h-4 w-4" strokeWidth={2} />{" "}{t("Foto maken")}<input type="file" accept="image/*" capture="environment" onChange={(e) => choosePhoto(e.target.files?.[0])} className="sr-only" />
+              </label>
+              <label className={`cursor-pointer ${secondaryButtonClass}`}>
+                <ImagePlus className="h-4 w-4" strokeWidth={2} /> {showsPhoto ? t("Andere foto") : t("Kies foto")}
+                <input type="file" accept="image/*" onChange={(e) => choosePhoto(e.target.files?.[0])} className="sr-only" />
+              </label>
+              {showsPhoto && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhoto(null);
+                    setRemovePhoto(true);
+                  }}
+                  className="rounded-md px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900"
+                >{t("Foto verwijderen")}</button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Ingrediënten")}</span>
           <div className="flex flex-col gap-1.5 rounded-md border border-slate-200 p-2">
             {rows.map((row) => (
               <div key={row.key} className="flex items-center gap-1.5">
@@ -186,33 +247,33 @@ export default function RecipeForm({
                   type="button"
                   onClick={() => removeRow(row.key)}
                   className="text-slate-300 hover:text-red-600"
-                  title="Verwijderen"
-                  aria-label="Verwijderen"
+                  title={t("Verwijderen")}
+                  aria-label={t("Verwijderen")}
                 >
                   <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                 </button>
               </div>
             ))}
-            {rows.length === 0 && <div className="px-1 py-1 text-sm text-slate-400">Nog geen ingrediënten.</div>}
+            {rows.length === 0 && <div className="px-1 py-1 text-sm text-slate-400">{t("Nog geen ingrediënten.")}</div>}
             <div className="mt-1">
-              <AddItemCombobox onSelect={addRow} placeholder="Ingrediënt toevoegen…" />
+              <AddItemCombobox onSelect={addRow} placeholder={t("Ingrediënt toevoegen…")} />
             </div>
           </div>
         </div>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Bereidingswijze</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Bereidingswijze")}</span>
           <textarea
             rows={6}
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            placeholder="**Vet**, *cursief*, - opsomming en 1. genummerde stappen worden ondersteund."
+            placeholder={t("**Vet**, *cursief*, - opsomming en 1. genummerde stappen worden ondersteund.")}
             className={`${inputClass} resize-y`}
           />
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Notities (optioneel)</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Notities (optioneel)")}</span>
           <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className={`${inputClass} resize-y`} />
         </label>
 
@@ -221,15 +282,13 @@ export default function RecipeForm({
             type="button"
             onClick={onCancel}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Annuleren
-          </button>
+          >{t("Annuleren")}</button>
           <button
             type="submit"
             disabled={isSubmitting || !title.trim()}
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
-            {isSubmitting ? "Bezig…" : "Opslaan"}
+            {isSubmitting ? t("Bezig…") : t("Opslaan")}
           </button>
         </div>
       </form>

@@ -40,6 +40,12 @@ mkdir -p "$LOCAL_BACKUP_DIR"
 if [ -f "$LOCAL_DB" ]; then
   ASIDE="$LOCAL_BACKUP_DIR/portfolio.pre-sync-$(date +%Y%m%d-%H%M%S).db"
   mv "$LOCAL_DB" "$ASIDE"
+  # The database runs in WAL mode: its -wal file holds writes not yet copied into the main file.
+  # It moves along (SQLite pairs it with the database by name), so the copy set aside is
+  # complete and a stale log is never replayed into the restored snapshot.
+  for suffix in -wal -shm; do
+    if [ -f "$LOCAL_DB$suffix" ]; then mv "$LOCAL_DB$suffix" "$ASIDE$suffix"; fi
+  done
   echo "Your previous local db is kept at $ASIDE (gitignored, same as backend/backups/ always is) -- delete it by hand once you're sure you don't need it back."
 fi
 

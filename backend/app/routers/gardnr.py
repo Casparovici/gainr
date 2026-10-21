@@ -55,17 +55,7 @@ def _schedule_out(schedule, logs) -> GardenCareScheduleOut:
 
 @router.get("/areas", response_model=list[GardenAreaOut])
 def list_areas(db: Session = Depends(get_db)):
-    plants = garden_plant_repo.list_plants(db)
-    plant_ids = [p.id for p in plants]
-    logs_by_plant = garden_care_repo.list_logs_for_plants(db, plant_ids)
-    schedules_by_plant = garden_care_repo.list_schedules_for_plants(db, plant_ids)
-
-    overdue_by_area: dict[int, int] = {}
-    for plant in plants:
-        due = garden_care_service.soonest_due_action(schedules_by_plant.get(plant.id, []), logs_by_plant.get(plant.id, []))
-        if due is not None and due.is_overdue:
-            overdue_by_area[plant.area_id] = overdue_by_area.get(plant.area_id, 0) + 1
-
+    overdue_by_area = garden_care_service.overdue_plants_by_area(db)
     return [
         GardenAreaOut(
             id=a.id, name=a.name, sort_order=a.sort_order, plant_count=count,
@@ -91,9 +81,7 @@ def get_area(area_id: int, db: Session = Depends(get_db)):
 
     zones = garden_zone_repo.list_zones(db, area_id)
     plants = garden_plant_repo.list_plants(db, area_id=area_id)
-    plant_ids = [p.id for p in plants]
-    logs_by_plant = garden_care_repo.list_logs_for_plants(db, plant_ids)
-    schedules_by_plant = garden_care_repo.list_schedules_for_plants(db, plant_ids)
+    care = garden_care_service.care_by_plant(db, plants)
 
     plant_markers = [
         GardenPlantMapOut(
@@ -108,8 +96,8 @@ def get_area(area_id: int, db: Session = Depends(get_db)):
             marker_height=p.marker_height,
             icon=p.icon,
             status=p.status,
-            last_action=garden_care_service.latest_action(logs_by_plant.get(p.id, [])),
-            next_action=garden_care_service.soonest_due_action(schedules_by_plant.get(p.id, []), logs_by_plant.get(p.id, [])),
+            last_action=care[p.id].last_action,
+            next_action=care[p.id].next_action,
         )
         for p in plants
     ]
@@ -186,15 +174,13 @@ def delete_zone(zone_id: int, db: Session = Depends(get_db)):
 @router.get("/plants", response_model=list[GardenPlantListOut])
 def list_plants(include_archived: bool = False, db: Session = Depends(get_db)):
     plants = garden_plant_repo.list_plants(db, include_archived=include_archived)
-    plant_ids = [p.id for p in plants]
-    logs_by_plant = garden_care_repo.list_logs_for_plants(db, plant_ids)
-    schedules_by_plant = garden_care_repo.list_schedules_for_plants(db, plant_ids)
+    care = garden_care_service.care_by_plant(db, plants)
     areas_by_id = {a.id: a for a, _ in garden_area_repo.list_areas(db)}
 
     rows = []
     for p in plants:
-        actions = garden_care_service.scheduled_actions(schedules_by_plant.get(p.id, []), logs_by_plant.get(p.id, []))
-        next_action = actions[0] if actions else None
+        actions = care[p.id].scheduled
+        next_action = care[p.id].next_action
         rows.append(
             GardenPlantListOut(
                 id=p.id,
@@ -316,14 +302,17 @@ def _resize_log_photo(raw: bytes) -> bytes:
 
 
 @router.put("/logs/{log_id}/photo", response_model=GardenCareLogOut)
-async def set_log_photo(log_id: int, photo: UploadFile, db: Session = Depends(get_db)):
+def set_log_photo(log_id: int, photo: UploadFile, db: Session = Depends(get_db)):
     """A deliberate attach-a-photo action, separate from the log's own create/update. The upload
     size cap guards against decoding something absurd; the real size control is the resize/
-    re-encode below, not this cap."""
+    re-encode below, not this cap. A plain `def`, like every other route: the database write and
+    the Pillow resize block, and FastAPI runs a sync route in its thread pool instead of on the
+    event loop every other request is waiting on."""
     log = garden_care_repo.get_log(db, log_id)
     if log is None:
         raise HTTPException(status_code=404, detail="Log entry not found")
-    content = await photo.read()
+    # One byte past the cap is enough to know it's too big, without holding all of it.
+    content = photo.file.read(MAX_LOG_PHOTO_UPLOAD_BYTES + 1)
     if len(content) > MAX_LOG_PHOTO_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Photo too large")
     try:

@@ -12,9 +12,11 @@ interest and spending cashback Trading 212 paid on its cash. See docs/adr/0031-t
   however long ago it was.
 - Fills are booked for the cash they actually moved: Trading 212's net value, fees included. A
   fill paid from the USD wallet is converted at that day's EUR rate.
-- Interest and cashback arrive daily in amounts of a few cents, and auto-invest spends them on
-  small buys. They're booked per completed week (Monday to Sunday) as one Deposit on the Sunday,
-  so the cash those buys use is there without a row per day.
+- Interest and cashback arrive daily in amounts of a few cents. They're booked per completed week
+  (Monday to Sunday), on the Sunday, so there isn't a row per day. The interest is an Interest row
+  in the portfolio's cash. The cashback is what auto-invest turns into TDIV, so it's a Deposit in the
+  same portfolio (the cash those buys spend), and also income in the gripr account chosen for it,
+  so income overviews count it. Without a cashback account, both stay one Deposit in gainr.
 """
 
 import json
@@ -27,8 +29,11 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
 from app.models.broker_sync import BrokerConnection
+from app.models.gripr_category import GriprCategoryKind
+from app.models.gripr_transaction import GriprTransactionType
 from app.models.transaction import Transaction, TransactionType
-from app.repositories import broker_sync_repo, transaction_repo
+from app.repositories import broker_sync_repo, gripr_category_repo, gripr_transaction_repo, transaction_repo
+from app.services import gripr_transaction_service
 from app.services.performance_service import performance_service
 from app.services.price_service import PriceService, price_service
 from app.services.trading212_provider import (
@@ -62,6 +67,7 @@ class BrokerSyncResult:
     booked: int = 0
     matched: int = 0
     deposits: int = 0
+    cashbacks: int = 0
     unmapped: list[dict] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
 
@@ -338,18 +344,48 @@ def _sync_weeks(run: _Run, weeks: dict[str, tuple[date, date]], cash: list[CashE
 
     for week, (start, sunday) in sorted(weeks.items()):
         interest, cashback = (totals[week][k].quantize(Decimal("0.01")) for k in ("interest", "cashback"))
-        total = interest + cashback
         reference = f"{PREFIX}:week:{week}"
-        if total <= 0:
-            broker_sync_repo.record(run.db, reference, "empty")
-            continue
         number = week.split("-W")[1].lstrip("0")
-        booked = transaction_repo.create_transaction(
-            run.db,
-            portfolio_id=run.portfolio_id, date=sunday, type=TT.DEPOSIT,
-            value_eur=total, costs=Decimal(0), total_eur=total, broker=BROKER,
-            notes=f"Trading 212: interest €{interest} + cashback €{cashback}, week {number} ({start:%d %b}–{sunday:%d %b})",
-            source_ref=reference,
-        )
-        broker_sync_repo.record(run.db, reference, "booked", booked.id)
-        run.result.deposits += 1
+        span = f"week {number} ({start:%d %b}–{sunday:%d %b})"
+        cashback_account = run.connection.cashback_account_id
+        if cashback_account is None:
+            # No cashback account chosen: both stay one deposit, as before.
+            total = interest + cashback
+            if total <= 0:
+                broker_sync_repo.record(run.db, reference, "empty")
+                continue
+            booked = transaction_repo.create_transaction(
+                run.db, portfolio_id=run.portfolio_id, date=sunday, type=TT.DEPOSIT,
+                value_eur=total, costs=Decimal(0), total_eur=total, broker=BROKER,
+                notes=f"Trading 212: interest €{interest} + cashback €{cashback}, {span}", source_ref=reference,
+            )
+            broker_sync_repo.record(run.db, reference, "booked", booked.id)
+            run.result.deposits += 1
+            continue
+
+        interest_row = None
+        if interest > 0:
+            interest_row = transaction_repo.create_transaction(
+                run.db, portfolio_id=run.portfolio_id, date=sunday, type=TT.INTEREST,
+                value_eur=interest, costs=Decimal(0), total_eur=interest, broker=BROKER,
+                notes=f"Trading 212 interest, {span}", source_ref=reference,
+            )
+            run.result.deposits += 1
+        if cashback > 0:
+            transaction_repo.create_transaction(
+                run.db, portfolio_id=run.portfolio_id, date=sunday, type=TT.DEPOSIT,
+                value_eur=cashback, costs=Decimal(0), total_eur=cashback, broker=BROKER,
+                notes=f"Trading 212 cashback, {span}", source_ref=f"{PREFIX}:cashback-deposit:{week}",
+            )
+        if cashback > 0 and not gripr_transaction_repo.exists_by_source_ref(run.db, f"{PREFIX}:cashback:{week}"):
+            category = gripr_category_repo.get_by_name(run.db, "Cashback", GriprCategoryKind.INCOME, None)
+            gripr_transaction_service.create_transaction(
+                run.db, date=sunday, type=GriprTransactionType.INCOME, amount=cashback, account_id=cashback_account,
+                category_id=category.id if category else None, notes=f"Trading 212 cashback, {span}",
+                source_ref=f"{PREFIX}:cashback:{week}",
+            )
+            run.result.cashbacks += 1
+        if interest_row is None and cashback <= 0:
+            broker_sync_repo.record(run.db, reference, "empty")
+        else:
+            broker_sync_repo.record(run.db, reference, "booked", interest_row.id if interest_row else None)

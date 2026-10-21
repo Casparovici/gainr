@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories import asset_repo
-from app.schemas.fundamentals import FinancialsOut, NewsOut, NewsSourcesUpdate
+from app.schemas.fundamentals import FinancialsOut, NewsOut, NewsSourcesUpdate, PositionMetricsOut
 from app.services import news_sources
 from app.services.fundamentals_service import fundamentals_service
 
@@ -38,6 +38,15 @@ def get_asset_financials(asset_id: int, db: Session = Depends(get_db)):
     snapshot (P/E, margins, leverage, dividend). Empty for anything that doesn't file
     statements — an ETF or a currency pair has none."""
     return fundamentals_service.get_financials(db, _asset(db, asset_id))
+
+
+@router.get("/{asset_id}/metrics", response_model=PositionMetricsOut)
+def get_asset_metrics(asset_id: int, db: Session = Depends(get_db)):
+    """The position's analyst checklist: the metrics that decide how this holding is judged,
+    filled in from Yahoo where it has them. Empty for a position without a checklist."""
+    out = fundamentals_service.get_metrics(db, _asset(db, asset_id))
+    db.commit()
+    return out
 
 
 @router.put("/{asset_id}/news-sources", response_model=NewsOut)

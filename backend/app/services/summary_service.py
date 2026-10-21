@@ -42,6 +42,9 @@ class SummaryService:
         total_value_eur = cash_eur + holdings_value_eur
 
         ytd = performance_service.get_range(db, portfolio_id, "YTD")
+        day = performance_service.get_range(db, portfolio_id, "1D")
+        # The same ranges the chart offers, so a tile and the chart's header agree.
+        since_start = performance_service.get_range(db, portfolio_id, "Max")
         ytd_return_eur = ytd["change_eur"] if ytd["change_eur"] is not None else ZERO
         ytd_return_pct = ytd["change_pct"]
 
@@ -58,12 +61,17 @@ class SummaryService:
             "holdings_value_eur": holdings_value_eur,
             "ytd_return_eur": ytd_return_eur,
             "ytd_return_pct": ytd_return_pct,
+            "ytd_mwr_pct": ytd.get("mwr_pct"),
+            "total_mwr_pct": since_start.get("mwr_pct"),
+            "total_mwr_yearly_pct": since_start.get("mwr_yearly_pct"),
             "total_return_eur": total_return_eur,
             "total_return_pct": total_return_pct,
             "unrealized_pnl_eur": unrealized_pnl_eur,
             "unrealized_pnl_pct": unrealized_pnl_pct,
             "realized_pnl_eur": realized_pnl_eur,
             "total_invested_eur": invested_eur,
+            "day_change_eur": day["change_eur"],
+            "day_change_pct": day["change_pct"],
             "as_of": date.today(),
         }
 

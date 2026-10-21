@@ -1,18 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
 
 import { listrApi } from "../../api/listrClient";
 import type { ListrInventoryStatus, ListrItem } from "../../api/listrTypes";
 import AddItemCombobox from "../../components/listr/AddItemCombobox";
 import InventoryAddToListDialog from "../../components/listr/InventoryAddToListDialog";
+import LeftoversCard from "../../components/listr/LeftoversCard";
+import Stepper from "../../components/listr/Stepper";
 import { IconAlert, IconChevronRight, ModuleTopRow, PageTitle } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
 import { categoryIcon } from "../../utils/categoryIcons";
+import { msg, t, tp } from "../../i18n";
 
 const STATUS_LABELS: Record<ListrInventoryStatus, string> = {
-  in_stock: "Op voorraad",
-  low: "Bijna op",
-  out: "Op",
+  in_stock: msg("Op voorraad"),
+  low: msg("Bijna op"),
+  out: msg("Op"),
 };
 
 const STATUS_DOT_CLASS: Record<ListrInventoryStatus, string> = {
@@ -30,49 +34,6 @@ function computeInventoryStatus(count: number, minimum: number): ListrInventoryS
   return "in_stock";
 }
 
-/** A +/- pair around a number -- every adjustment is a server round-trip via `onAdjust(delta)`,
- * never a locally-typed draft value. Count and minimum both use this: typing into a text field
- * and committing on blur turned out to be the fragile part (see docs/adr/0015's third addendum
- * -- a blur-timing race could drop an in-progress edit before it was ever sent), while the
- * count's own +/- buttons, which never held draft state, had been reliably persisting the whole
- * time. */
-function Stepper({
-  value,
-  onAdjust,
-  decrementLabel,
-  incrementLabel,
-}: {
-  value: number;
-  onAdjust: (delta: number) => void;
-  decrementLabel: string;
-  incrementLabel: string;
-}) {
-  return (
-    <span className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => onAdjust(-1)}
-        disabled={value === 0}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-ui-line bg-ui-surface text-ui-ink-soft hover:bg-ui-tile disabled:opacity-30"
-        title={decrementLabel}
-        aria-label={decrementLabel}
-      >
-        <Minus className="h-3.5 w-3.5" strokeWidth={2} />
-      </button>
-      <span className="w-5 text-center text-[15px] font-semibold tabular-nums text-ui-ink">{value}</span>
-      <button
-        type="button"
-        onClick={() => onAdjust(1)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-ui-line bg-ui-surface text-ui-ink-soft hover:bg-ui-tile"
-        title={incrementLabel}
-        aria-label={incrementLabel}
-      >
-        <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-      </button>
-    </span>
-  );
-}
-
 function InventoryItemRow({
   item,
   onAdjustCount,
@@ -88,26 +49,24 @@ function InventoryItemRow({
     <li className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2 pl-4 pr-2 text-[15px] text-ui-ink">
       <span className="min-w-0 flex-1 basis-32 truncate">{item.name}</span>
       <span className="ml-auto flex shrink-0 items-center gap-2.5">
-        <Stepper value={item.inventory_count} onAdjust={onAdjustCount} decrementLabel="Een minder" incrementLabel="Een meer" />
-        <span className="flex items-center gap-1 text-xs text-ui-muted" title="Daaronder springt de status naar Bijna op">
-          min
-          <Stepper
+        <Stepper value={item.inventory_count} onAdjust={onAdjustCount} decrementLabel={t("Een minder")} incrementLabel={t("Een meer")} />
+        <span className="flex items-center gap-1 text-xs text-ui-muted" title={t("Daaronder springt de status naar Bijna op")}>{t("min")}<Stepper
             value={item.inventory_minimum}
             onAdjust={onAdjustMinimum}
-            decrementLabel="Minimum een lager"
-            incrementLabel="Minimum een hoger"
+            decrementLabel={t("Minimum een lager")}
+            incrementLabel={t("Minimum een hoger")}
           />
         </span>
         <span
           className={`h-3.5 w-3.5 shrink-0 rounded-full ${item.inventory_status ? STATUS_DOT_CLASS[item.inventory_status] : "bg-ui-border"}`}
-          title={item.inventory_status ? STATUS_LABELS[item.inventory_status] : undefined}
+          title={item.inventory_status ? t(STATUS_LABELS[item.inventory_status]) : undefined}
         />
         <button
           type="button"
           onClick={onUntrack}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-ui-faint hover:text-ui-ink"
-          title="Niet meer bijhouden"
-          aria-label="Niet meer bijhouden"
+          title={t("Niet meer bijhouden")}
+          aria-label={t("Niet meer bijhouden")}
         >
           <X className="h-4 w-4" strokeWidth={2} />
         </button>
@@ -139,13 +98,11 @@ function RestockBanner({ count, anyOut, onClick }: { count: number; anyOut: bool
       </span>
       <span className="flex min-w-0 flex-grow flex-col gap-px">
         <span className="text-[15px] font-bold">
-          {count} product{count === 1 ? "" : "en"} moet{count === 1 ? "" : "en"} aangevuld worden
+          {tp(count, "{n} product moet aangevuld worden", "{n} producten moeten aangevuld worden")}
         </span>
-        <span className={`text-[13px] ${anyOut ? "text-ui-late-ink" : "text-ui-today"}`}>Zet ze op een boodschappenlijst</span>
+        <span className={`text-[13px] ${anyOut ? "text-ui-late-ink" : "text-ui-today"}`}>{t("Zet ze op een boodschappenlijst")}</span>
       </span>
-      <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold">
-        Lijst
-        <IconChevronRight size={16} />
+      <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold">{t("Lijst")}<IconChevronRight size={16} />
       </span>
     </button>
   );
@@ -156,7 +113,7 @@ export default function ListrInventory() {
   const [showAddToList, setShowAddToList] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const { data: items, isLoading } = useQuery({
+  const { data: items, isLoading, isError, refetch } = useQuery({
     queryKey: ["listr-inventory"],
     queryFn: () => listrApi.listInventory(),
   });
@@ -221,7 +178,7 @@ export default function ListrInventory() {
       }),
     onSuccess: (list) => {
       setShowAddToList(false);
-      setFeedback(`Toegevoegd aan "${list.name}".`);
+      setFeedback(t("Toegevoegd aan \"{name}\".", { name: list.name }));
       queryClient.invalidateQueries({ queryKey: ["listr-lists"] });
     },
   });
@@ -232,14 +189,16 @@ export default function ListrInventory() {
   return (
     <div className="flex flex-col gap-4">
       <ModuleTopRow />
-      <PageTitle subtitle={items && items.length > 0 ? `${items.length} producten bijgehouden` : undefined}>Voorraad</PageTitle>
+      <PageTitle subtitle={items && items.length > 0 ? tp(items.length, "{n} product bijgehouden", "{n} producten bijgehouden") : undefined}>{t("Voorraad")}</PageTitle>
 
       <div className="w-full sm:max-w-sm">
         <AddItemCombobox
-          placeholder="Product bijhouden…"
+          placeholder={t("Product bijhouden…")}
           onSelect={(item) => setTrackingMutation.mutate({ id: item.id, tracked: true })}
         />
       </div>
+
+      <LeftoversCard />
 
       {/* Like gardnr's due banner: red when something has run out, amber when it's only running
           low. The whole banner opens the add-to-list dialog. */}
@@ -253,11 +212,11 @@ export default function ListrInventory() {
       {feedback && <div className="text-sm font-medium text-ui-ink-soft">{feedback}</div>}
 
       {isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
+      ) : isError ? (
+        <QueryError className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center" message={t("Voorraad laden mislukt.")} onRetry={() => refetch()} retryLabel={t("Opnieuw")} />
       ) : groups.length === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">
-          Nog geen producten bijgehouden. Zoek hierboven een product om het toe te voegen aan je voorraad.
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Nog geen producten bijgehouden. Zoek hierboven een product om het toe te voegen aan je voorraad.")}</div>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {groups.map((group) => {

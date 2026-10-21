@@ -1,22 +1,21 @@
 import hmac
-from datetime import date as date_, datetime, timedelta, timezone
+from datetime import date as date_, datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from icalendar import Calendar, Event
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app import config
 from app.db import get_db
 from app.repositories import (
-    gripr_account_repo,
-    gripr_category_repo,
     listr_category_repo,
     listr_item_repo,
+    listr_leftover_repo,
     listr_list_repo,
     listr_meal_plan_repo,
     listr_recipe_category_repo,
     listr_recipe_repo,
+    listr_store_repo,
     picnic_sync_repo,
 )
 from app.schemas.listr import (
@@ -32,6 +31,10 @@ from app.schemas.listr import (
     ListrItemCreate,
     ListrItemOut,
     ListrItemUpdate,
+    ListrLeftoverCreate,
+    ListrLeftoverMealsDeltaIn,
+    ListrLeftoverOut,
+    ListrLeftoverUpdate,
     ListrListCreate,
     ListrListDetailOut,
     ListrListDuplicate,
@@ -41,6 +44,7 @@ from app.schemas.listr import (
     ListrListOut,
     ListrListUpdate,
     ListrMealPlanInput,
+    ListrMealPlanMoveIn,
     ListrMealPlanAddToListIn,
     ListrMealPlanOut,
     ListrMealieImportIn,
@@ -86,8 +90,22 @@ from app.schemas.listr import (
     ListrRecipeIngredientOut,
     ListrRecipeOut,
     ListrRecipeUpdate,
+    ListrStoreCreate,
+    ListrStoreOrder,
+    ListrStoreOut,
+    ListrStoreUpdate,
 )
-from app.services import listr_inventory_service, listr_list_service, picnic_sync_service
+from app.routers.errors import domain_errors
+from app.services import (
+    listr_catalog_service,
+    listr_inventory_service,
+    listr_leftover_service,
+    listr_list_service,
+    listr_meal_plan_service,
+    listr_recipe_service,
+    listr_store_service,
+    picnic_sync_service,
+)
 from app.services.listr_mealie_service import MealieNotConfigured, UnmappedMealieFoods, listr_mealie_service
 from app.services.listr_picnic_service import (
     MissingIngredientCategory,
@@ -167,17 +185,11 @@ def list_items(include_archived: bool = False, category_id: int | None = None, d
 
 @router.post("/items", response_model=ListrItemOut)
 def create_item(payload: ListrItemCreate, db: Session = Depends(get_db)):
-    """Get-or-create by name -- adding a product that already exists in the catalog returns
-    that product rather than erroring or duplicating, matching gainr's asset-creation flow."""
-    category = listr_category_repo.get_category(db, payload.category_id)
-    if category is None:
-        raise HTTPException(status_code=404, detail="Category not found")
-    existing = listr_item_repo.get_by_name(db, payload.name)
-    if existing is not None:
-        return _to_item_out(existing)
-    item = listr_item_repo.create_item(
-        db, name=payload.name, category_id=payload.category_id, default_unit=payload.default_unit
-    )
+    """Get-or-create by name (listr_catalog_service.get_or_create_item)."""
+    with domain_errors():
+        item = listr_catalog_service.get_or_create_item(
+            db, name=payload.name, category_id=payload.category_id, default_unit=payload.default_unit
+        )
     db.commit()
     db.refresh(item)
     return _to_item_out(item)
@@ -204,17 +216,15 @@ def set_item_picnic_mapping(item_id: int, payload: ListrPicnicMappingIn, db: Ses
     item = listr_item_repo.get_item(db, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    listr_item_repo.update_item(
+    listr_catalog_service.set_picnic_mapping(
         db,
         item,
-        picnic_product_id=payload.picnic_product_id,
-        picnic_product_name=payload.picnic_product_name,
-        # The picked search result's own price, so it shows straight away; cleared when a pick
-        # comes without one rather than keeping the previous product's price.
-        picnic_price=Decimal(payload.display_price) / 100 if payload.display_price is not None else None,
-        picnic_unit_quantity=payload.unit_quantity,
-        picnic_price_at=datetime.now() if payload.display_price is not None else None,
-        picnic_image_id=payload.image_id,
+        product_id=payload.picnic_product_id,
+        product_name=payload.picnic_product_name,
+        display_price_cents=payload.display_price,
+        unit_quantity=payload.unit_quantity,
+        image_id=payload.image_id,
+        now=datetime.now(),
     )
     db.commit()
     db.refresh(item)
@@ -232,13 +242,11 @@ def list_inventory(db: Session = Depends(get_db)):
 @router.put("/items/{item_id}/inventory", response_model=ListrItemOut)
 def set_item_inventory_tracking(item_id: int, payload: ListrInventoryTrackingIn, db: Session = Depends(get_db)):
     """Starts or stops tracking -- not a status to pick, that's computed (see
-    listr_inventory_service.compute_status). Untracking clears inventory_status but leaves count/minimum as
-    they were, so re-tracking later picks up where it left off instead of resetting to zero."""
+    listr_catalog_service.set_tracked)."""
     item = listr_item_repo.get_item(db, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    new_status = listr_inventory_service.compute_status(item.inventory_count, item.inventory_minimum) if payload.tracked else None
-    listr_item_repo.update_item(db, item, inventory_status=new_status)
+    listr_catalog_service.set_tracked(db, item, payload.tracked)
     db.commit()
     db.refresh(item)
     return _to_item_out(item)
@@ -275,30 +283,80 @@ def adjust_item_inventory_count(item_id: int, payload: ListrInventoryCountDeltaI
 
 @router.post("/inventory/add-to-list", response_model=ListrListOut)
 def add_inventory_to_list(payload: ListrInventoryAddToListIn, db: Session = Depends(get_db)):
-    """Bulk "restock these" action -- each item lands on the list at quantity 1 of its own
-    default unit, same as there's no computed quantity anywhere else in listr; the reader
-    adjusts the amount on the list itself, same as a manually added item."""
-    if payload.list_id is None and not payload.new_list_name:
-        raise HTTPException(status_code=400, detail="Provide list_id or new_list_name")
-
-    if payload.list_id is not None:
-        target_list = listr_list_repo.get_list(db, payload.list_id)
-        if target_list is None:
-            raise HTTPException(status_code=404, detail="List not found")
-    else:
-        target_list = listr_list_repo.create_list(db, name=payload.new_list_name)
-
-    lines = []
-    for item_id in payload.item_ids:
-        item = listr_item_repo.get_item(db, item_id)
-        if item is None:
-            raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
-        lines.append(listr_list_service.IngredientLine(item.id, Decimal("1"), item.default_unit))
-
-    listr_list_service.add_ingredients_to_list(db, target_list.id, lines)
+    """Bulk "restock these" action (listr_list_service.add_items_to_list)."""
+    with domain_errors():
+        target_list = listr_list_service.add_items_to_list(db, payload.item_ids, payload.list_id, payload.new_list_name)
     db.commit()
     counts = listr_list_repo.counts_by_list(db)
     return _to_list_out(target_list, counts)
+
+
+# -- stores (supermarkets and their aisle order, docs/adr/0052) -------------------------------
+
+
+def _to_store_out(db: Session, store) -> ListrStoreOut:
+    return ListrStoreOut(
+        id=store.id,
+        name=store.name,
+        sort_order=store.sort_order,
+        is_archived=store.is_archived,
+        category_ids=[row.category_id for row in store.category_positions],
+        category_order=listr_store_service.category_order(db, store.id),
+    )
+
+
+@router.get("/stores", response_model=list[ListrStoreOut])
+def list_stores(include_archived: bool = False, db: Session = Depends(get_db)):
+    return [_to_store_out(db, s) for s in listr_store_repo.list_stores(db, include_archived=include_archived)]
+
+
+@router.post("/stores", response_model=ListrStoreOut)
+def create_store(payload: ListrStoreCreate, db: Session = Depends(get_db)):
+    with domain_errors():
+        store = listr_store_service.create_store(db, payload.name, payload.copy_order_from_id)
+    db.commit()
+    db.refresh(store)
+    return _to_store_out(db, store)
+
+
+@router.put("/stores/{store_id}", response_model=ListrStoreOut)
+def update_store(store_id: int, payload: ListrStoreUpdate, db: Session = Depends(get_db)):
+    store = listr_store_repo.get_store(db, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+    fields = payload.model_dump(exclude_unset=True)
+    with domain_errors():
+        if fields.get("name") is not None:
+            listr_store_service.rename_store(db, store, fields.pop("name"))
+        fields.pop("name", None)
+        if fields:
+            listr_store_repo.update_store(db, store, **fields)
+    db.commit()
+    db.refresh(store)
+    return _to_store_out(db, store)
+
+
+@router.put("/stores/{store_id}/order", response_model=ListrStoreOut)
+def set_store_order(store_id: int, payload: ListrStoreOrder, db: Session = Depends(get_db)):
+    """The store's aisle order, first to last: the categories as the shop is walked."""
+    store = listr_store_repo.get_store(db, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+    with domain_errors():
+        listr_store_service.set_order(db, store, payload.category_ids)
+    db.commit()
+    db.refresh(store)
+    return _to_store_out(db, store)
+
+
+@router.delete("/stores/{store_id}", status_code=204)
+def delete_store(store_id: int, db: Session = Depends(get_db)):
+    """Lists that followed it go back to the global order; nothing on them changes."""
+    store = listr_store_repo.get_store(db, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+    listr_store_repo.delete_store(db, store)
+    db.commit()
 
 
 # -- lists ------------------------------------------------------------------------------------
@@ -314,6 +372,7 @@ def _to_list_out(grocery_list, counts: dict[int, tuple[int, int]]) -> ListrListO
         updated_at=grocery_list.updated_at,
         item_count=item_count,
         checked_count=checked_count,
+        store_id=grocery_list.store_id,
     )
 
 
@@ -368,6 +427,8 @@ def get_list(list_id: int, db: Session = Depends(get_db)):
         updated_at=grocery_list.updated_at,
         item_count=len(items),
         checked_count=sum(1 for i in items if i.is_checked),
+        store_id=grocery_list.store_id,
+        category_order=listr_store_service.category_order(db, grocery_list.store_id),
         items=[_to_list_item_out(i) for i in items],
     )
 
@@ -378,8 +439,11 @@ def update_list(list_id: int, payload: ListrListUpdate, db: Session = Depends(ge
     if grocery_list is None:
         raise HTTPException(status_code=404, detail="List not found")
     fields = payload.model_dump(exclude_unset=True)
-    if fields:
-        listr_list_repo.update_list(db, grocery_list, **fields)
+    with domain_errors():
+        if "store_id" in fields:
+            listr_store_service.assign_store(db, grocery_list, fields.pop("store_id"))
+        if fields:
+            listr_list_repo.update_list(db, grocery_list, **fields)
     db.commit()
     counts = listr_list_repo.counts_by_list(db)
     return _to_list_out(grocery_list, counts)
@@ -390,7 +454,7 @@ def delete_list(list_id: int, db: Session = Depends(get_db)):
     grocery_list = listr_list_repo.get_list(db, list_id)
     if grocery_list is None:
         raise HTTPException(status_code=404, detail="List not found")
-    db.delete(grocery_list)  # cascades to its items via the model relationship
+    listr_list_repo.delete_list(db, grocery_list)
     db.commit()
 
 
@@ -527,6 +591,7 @@ def _to_recipe_out(recipe, include_ingredients: bool = True) -> ListrRecipeOut:
         updated_at=recipe.updated_at,
         ingredients=[_to_ingredient_out(i) for i in recipe.ingredients] if include_ingredients else [],
         categories=list(recipe.categories),
+        has_photo=recipe.has_photo,
         mealie_id=recipe.mealie_id,
     )
 
@@ -541,27 +606,15 @@ def list_recipes(include_archived: bool = False, category_id: int | None = None,
 
 @router.post("/recipes", response_model=ListrRecipeOut)
 def create_recipe(payload: ListrRecipeCreate, db: Session = Depends(get_db)):
-    categories = listr_recipe_category_repo.get_by_ids(db, payload.category_ids)
-    recipe = listr_recipe_repo.create_recipe(
-        db,
-        title=payload.title,
-        servings=payload.servings,
-        instructions=payload.instructions,
-        notes=payload.notes,
-        categories=categories,
-    )
-    for ingredient in payload.ingredients:
-        item = listr_item_repo.get_item(db, ingredient.grocery_item_id)
-        if item is None:
-            raise HTTPException(status_code=404, detail=f"Grocery item {ingredient.grocery_item_id} not found")
-        sort_order = listr_recipe_repo.next_ingredient_sort_order(db, recipe.id)
-        listr_recipe_repo.add_ingredient(
+    with domain_errors():
+        recipe = listr_recipe_service.create_recipe(
             db,
-            recipe_id=recipe.id,
-            grocery_item_id=item.id,
-            quantity=ingredient.quantity,
-            unit=ingredient.unit or item.default_unit,
-            sort_order=sort_order,
+            title=payload.title,
+            servings=payload.servings,
+            instructions=payload.instructions,
+            notes=payload.notes,
+            ingredients=payload.ingredients,
+            category_ids=payload.category_ids,
         )
     db.commit()
     recipe = listr_recipe_repo.get_recipe(db, recipe.id)
@@ -582,27 +635,10 @@ def update_recipe(recipe_id: int, payload: ListrRecipeUpdate, db: Session = Depe
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     fields = payload.model_dump(exclude_unset=True, exclude={"ingredients", "category_ids"})
-    if payload.category_ids is not None:
-        fields["categories"] = listr_recipe_category_repo.get_by_ids(db, payload.category_ids)
-    if fields:
-        listr_recipe_repo.update_recipe(db, recipe, **fields)
-    if payload.ingredients is not None:
-        # Replace the whole set -- simpler and safer than diffing against a form that always
-        # submits its full, current ingredient list.
-        for existing in list(recipe.ingredients):
-            listr_recipe_repo.delete_ingredient(db, existing)
-        for position, ingredient in enumerate(payload.ingredients):
-            item = listr_item_repo.get_item(db, ingredient.grocery_item_id)
-            if item is None:
-                raise HTTPException(status_code=404, detail=f"Grocery item {ingredient.grocery_item_id} not found")
-            listr_recipe_repo.add_ingredient(
-                db,
-                recipe_id=recipe.id,
-                grocery_item_id=item.id,
-                quantity=ingredient.quantity,
-                unit=ingredient.unit or item.default_unit,
-                sort_order=position,
-            )
+    with domain_errors():
+        listr_recipe_service.update_recipe(
+            db, recipe, ingredients=payload.ingredients, category_ids=payload.category_ids, **fields
+        )
     db.commit()
     recipe = listr_recipe_repo.get_recipe(db, recipe_id)
     return _to_recipe_out(recipe)
@@ -613,11 +649,46 @@ def delete_recipe(recipe_id: int, db: Session = Depends(get_db)):
     recipe = listr_recipe_repo.get_recipe(db, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    # The weekplanner history survives the delete -- unlinked, not removed -- same convention
-    # gripr uses when a category is deleted out from under its transactions.
-    listr_meal_plan_repo.unlink_recipe(db, recipe_id)
-    db.delete(recipe)
+    listr_recipe_service.delete_recipe(db, recipe)
     db.commit()
+
+
+@router.put("/recipes/{recipe_id}/photo", response_model=ListrRecipeOut)
+def set_recipe_photo(recipe_id: int, photo: UploadFile, db: Session = Depends(get_db)):
+    """A deliberate attach-a-photo action, separate from the recipe's JSON create/update. A plain
+    `def` so the Pillow resize runs in FastAPI's thread pool, not on the event loop."""
+    recipe = listr_recipe_repo.get_recipe(db, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    # One byte past the cap is enough to know it's too big, without holding all of it.
+    content = photo.file.read(listr_recipe_service.MAX_PHOTO_UPLOAD_BYTES + 1)
+    with domain_errors():
+        listr_recipe_service.set_photo(db, recipe, content)
+    db.commit()
+    return _to_recipe_out(listr_recipe_repo.get_recipe(db, recipe_id))
+
+
+@router.delete("/recipes/{recipe_id}/photo", response_model=ListrRecipeOut)
+def delete_recipe_photo(recipe_id: int, db: Session = Depends(get_db)):
+    recipe = listr_recipe_repo.get_recipe(db, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    listr_recipe_service.clear_photo(db, recipe)
+    db.commit()
+    return _to_recipe_out(listr_recipe_repo.get_recipe(db, recipe_id))
+
+
+@router.get("/recipes/{recipe_id}/photo")
+def get_recipe_photo(recipe_id: int, db: Session = Depends(get_db)):
+    recipe = listr_recipe_repo.get_recipe(db, recipe_id)
+    if recipe is None or not recipe.has_photo:
+        raise HTTPException(status_code=404, detail="No photo")
+    # The URL carries ?v=<updated_at>, so a replaced photo is a new URL and this can be cached.
+    return Response(
+        content=recipe.photo,
+        media_type=recipe.photo_content_type,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @router.post("/recipes/{recipe_id}/add-to-list", response_model=ListrListOut)
@@ -625,27 +696,10 @@ def add_recipe_to_list(recipe_id: int, payload: ListrAddIngredientsIn, db: Sessi
     recipe = listr_recipe_repo.get_recipe(db, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    if payload.list_id is None and not payload.new_list_name:
-        raise HTTPException(status_code=400, detail="Provide list_id or new_list_name")
-
-    if payload.list_id is not None:
-        target_list = listr_list_repo.get_list(db, payload.list_id)
-        if target_list is None:
-            raise HTTPException(status_code=404, detail="List not found")
-    else:
-        target_list = listr_list_repo.create_list(db, name=payload.new_list_name)
-
-    ingredients_by_id = {i.id: i for i in recipe.ingredients}
-    lines = []
-    for ingredient_id in payload.ingredient_ids:
-        ingredient = ingredients_by_id.get(ingredient_id)
-        if ingredient is None:
-            raise HTTPException(status_code=404, detail=f"Ingredient {ingredient_id} not found on this recipe")
-        lines.append(
-            listr_list_service.IngredientLine(ingredient.grocery_item_id, ingredient.quantity, ingredient.unit)
+    with domain_errors():
+        target_list = listr_list_service.add_recipe_to_list(
+            db, recipe, payload.ingredient_ids, payload.list_id, payload.new_list_name
         )
-
-    listr_list_service.add_ingredients_to_list(db, target_list.id, lines)
     db.commit()
     counts = listr_list_repo.counts_by_list(db)
     return _to_list_out(target_list, counts)
@@ -659,6 +713,8 @@ def _to_meal_plan_out(entry) -> ListrMealPlanOut:
         date=entry.date,
         recipe_id=entry.recipe_id,
         recipe_title=entry.recipe.title if entry.recipe else None,
+        leftover_id=entry.leftover_id,
+        leftover_name=entry.leftover.name if entry.leftover else None,
         is_cooked=entry.is_cooked,
         notes=entry.notes,
     )
@@ -678,31 +734,11 @@ def get_popular_recipes(limit: int = 10, db: Session = Depends(get_db)):
 
 @router.post("/meal-plan/add-to-list", response_model=ListrListOut)
 def add_meal_plan_to_list(payload: ListrMealPlanAddToListIn, db: Session = Depends(get_db)):
-    """Bulk sibling of a single recipe's "add to list" -- merges every ingredient from every
-    planned day's recipe (across possibly several different recipes) into one list, using the
-    same same-item-and-unit merge `add_ingredients_to_list` already does, so e.g. two different
-    recipes both needing onions land as one summed line rather than two."""
-    if payload.list_id is None and not payload.new_list_name:
-        raise HTTPException(status_code=400, detail="Provide list_id or new_list_name")
-
-    if payload.list_id is not None:
-        target_list = listr_list_repo.get_list(db, payload.list_id)
-        if target_list is None:
-            raise HTTPException(status_code=404, detail="List not found")
-    else:
-        target_list = listr_list_repo.create_list(db, name=payload.new_list_name)
-
-    lines = []
-    for day in payload.dates:
-        entry = listr_meal_plan_repo.get_by_date(db, day)
-        if entry is None or entry.recipe is None:
-            continue
-        for ingredient in entry.recipe.ingredients:
-            lines.append(
-                listr_list_service.IngredientLine(ingredient.grocery_item_id, ingredient.quantity, ingredient.unit)
-            )
-
-    listr_list_service.add_ingredients_to_list(db, target_list.id, lines)
+    """Bulk sibling of a single recipe's "add to list" (listr_list_service.add_planned_days_to_list)."""
+    with domain_errors():
+        target_list = listr_list_service.add_planned_days_to_list(
+            db, payload.dates, payload.list_id, payload.new_list_name
+        )
     db.commit()
     counts = listr_list_repo.counts_by_list(db)
     return _to_list_out(target_list, counts)
@@ -710,19 +746,90 @@ def add_meal_plan_to_list(payload: ListrMealPlanAddToListIn, db: Session = Depen
 
 @router.put("/meal-plan/{date}", response_model=ListrMealPlanOut)
 def set_meal_plan_day(date: date_, payload: ListrMealPlanInput, db: Session = Depends(get_db)):
-    if payload.recipe_id is not None and listr_recipe_repo.get_recipe(db, payload.recipe_id) is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    entry = listr_meal_plan_repo.upsert(
-        db, date, recipe_id=payload.recipe_id, is_cooked=payload.is_cooked, notes=payload.notes
-    )
+    try:
+        with domain_errors():
+            listr_meal_plan_service.set_day(
+                db,
+                date,
+                recipe_id=payload.recipe_id,
+                leftover_id=payload.leftover_id,
+                is_cooked=payload.is_cooked,
+                notes=payload.notes,
+            )
+    except listr_leftover_service.NoMealsLeft:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="No meals left of that leftover")
     db.commit()
     entry = listr_meal_plan_repo.get_by_date(db, date)
     return _to_meal_plan_out(entry)
 
 
+@router.post("/meal-plan/{date}/move", response_model=ListrMealPlanOut)
+def move_meal_plan_day(date: date_, payload: ListrMealPlanMoveIn, db: Session = Depends(get_db)):
+    with domain_errors():
+        entry = listr_meal_plan_service.move_day(db, date, payload.to)
+    db.commit()
+    return _to_meal_plan_out(entry)
+
+
 @router.delete("/meal-plan/{date}", status_code=204)
 def clear_meal_plan_day(date: date_, db: Session = Depends(get_db)):
-    listr_meal_plan_repo.clear(db, date)
+    listr_meal_plan_service.clear_day(db, date)
+    db.commit()
+
+
+# -- leftovers (see docs/adr/0036-listr-leftovers.md) --------------------------------------------
+
+
+@router.get("/leftovers", response_model=list[ListrLeftoverOut])
+def list_leftovers(db: Session = Depends(get_db)):
+    return listr_leftover_repo.list_available(db)
+
+
+@router.post("/leftovers", response_model=ListrLeftoverOut)
+def create_leftover(payload: ListrLeftoverCreate, db: Session = Depends(get_db)):
+    with domain_errors():
+        leftover = listr_leftover_service.create_leftover(
+            db,
+            name=payload.name,
+            recipe_id=payload.recipe_id,
+            meals=payload.meals,
+            servings_per_meal=payload.servings_per_meal,
+            location=payload.location,
+            stored_on=payload.stored_on,
+            use_by=payload.use_by,
+            today=date_.today(),
+        )
+    db.commit()
+    return leftover
+
+
+@router.patch("/leftovers/{leftover_id}", response_model=ListrLeftoverOut)
+def update_leftover(leftover_id: int, payload: ListrLeftoverUpdate, db: Session = Depends(get_db)):
+    leftover = listr_leftover_repo.get(db, leftover_id)
+    if leftover is None:
+        raise HTTPException(status_code=404, detail="Leftover not found")
+    listr_leftover_service.update_leftover(leftover, payload.model_dump(exclude_unset=True))
+    db.commit()
+    return leftover
+
+
+@router.post("/leftovers/{leftover_id}/meals", response_model=ListrLeftoverOut)
+def adjust_leftover_meals(leftover_id: int, payload: ListrLeftoverMealsDeltaIn, db: Session = Depends(get_db)):
+    leftover = listr_leftover_repo.get(db, leftover_id)
+    if leftover is None:
+        raise HTTPException(status_code=404, detail="Leftover not found")
+    listr_leftover_service.adjust_meals(leftover, payload.delta)
+    db.commit()
+    return leftover
+
+
+@router.delete("/leftovers/{leftover_id}", status_code=204)
+def delete_leftover(leftover_id: int, db: Session = Depends(get_db)):
+    leftover = listr_leftover_repo.get(db, leftover_id)
+    if leftover is None:
+        raise HTTPException(status_code=404, detail="Leftover not found")
+    listr_leftover_repo.delete(db, leftover)
     db.commit()
 
 
@@ -835,20 +942,16 @@ def get_picnic_sync_settings(db: Session = Depends(get_db)):
 
 @router.put("/picnic/sync-settings", response_model=ListrPicnicSyncSettingsOut)
 def update_picnic_sync_settings(payload: ListrPicnicSyncSettingsIn, db: Session = Depends(get_db)):
-    """Switching on without an account and category still restocks Voorraad; gripr booking
-    needs both. `since` defaults to today, so switching on never reaches back into history
-    unless the reader picks an earlier date on purpose."""
-    if payload.gripr_account_id is not None and gripr_account_repo.get_account(db, payload.gripr_account_id) is None:
-        raise HTTPException(status_code=400, detail="Unknown gripr account")
-    if payload.gripr_category_id is not None and gripr_category_repo.get_category(db, payload.gripr_category_id) is None:
-        raise HTTPException(status_code=400, detail="Unknown gripr category")
-    settings = picnic_sync_repo.update_settings(
-        db,
-        enabled=payload.enabled,
-        gripr_account_id=payload.gripr_account_id,
-        gripr_category_id=payload.gripr_category_id,
-        since=payload.since or (date_.today() if payload.enabled else None),
-    )
+    """See picnic_sync_service.update_settings."""
+    with domain_errors():
+        settings = picnic_sync_service.update_settings(
+            db,
+            enabled=payload.enabled,
+            account_id=payload.gripr_account_id,
+            category_id=payload.gripr_category_id,
+            since=payload.since,
+            today=date_.today(),
+        )
     db.commit()
     return _sync_settings_out(settings)
 
@@ -1112,32 +1215,6 @@ def mealie_import(payload: ListrMealieImportIn, db: Session = Depends(get_db)):
     return ListrMealieImportOut(created=result.created, updated=result.updated, unchanged=result.unchanged)
 
 
-def _build_meal_plan_ics(entries) -> bytes:
-    cal = Calendar()
-    cal.add("prodid", "-//gainr//listr weekplanner//NL")
-    cal.add("version", "2.0")
-    cal.add("x-wr-calname", "Weekplanner")
-    # Generated fresh on every request, so "now" is the correct DTSTAMP -- RFC 5545 requires
-    # every VEVENT to carry one, and Google Calendar silently drops any event missing it while
-    # still accepting the VCALENDAR wrapper itself (which is why the calendar showed up empty
-    # rather than failing outright).
-    now = datetime.now(timezone.utc)
-    for entry in entries:
-        title = entry.recipe.title if entry.recipe else entry.notes
-        if not title:
-            continue  # defensive -- upsert never leaves a row with neither recipe nor notes
-        event = Event()
-        event.add("summary", f"✓ {title}" if entry.is_cooked else title)
-        if entry.recipe and entry.notes:
-            event.add("description", entry.notes)
-        event.add("dtstart", entry.date)
-        event.add("dtend", entry.date + timedelta(days=1))
-        event.add("dtstamp", now)
-        event.add("uid", f"grecipe-meal-{entry.date.isoformat()}@ipper")
-        cal.add_component(event)
-    return cal.to_ical()
-
-
 @router.get("/meal-plan.ics")
 def meal_plan_ics(token: str, db: Session = Depends(get_db)):
     """Read-only feed for subscribing the weekplanner into an external calendar (e.g. Google
@@ -1149,5 +1226,5 @@ def meal_plan_ics(token: str, db: Session = Depends(get_db)):
     # short-circuiting comparison's timing could leak the secret a character at a time.
     if not config.LISTR_ICS_TOKEN or not hmac.compare_digest(token, config.LISTR_ICS_TOKEN):
         raise HTTPException(status_code=404)
-    entries = listr_meal_plan_repo.list_all(db)
-    return Response(content=_build_meal_plan_ics(entries), media_type="text/calendar; charset=utf-8")
+    ics = listr_meal_plan_service.calendar_feed(db, now=datetime.now(timezone.utc))
+    return Response(content=ics, media_type="text/calendar; charset=utf-8")

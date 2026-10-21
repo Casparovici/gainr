@@ -1,0 +1,10 @@
+[Unit]
+Description=Plan next week's gym sessions every Sunday at noon
+
+[Timer]
+OnCalendar=Sun *-*-* 12:00:00 Europe/Amsterdam
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

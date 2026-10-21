@@ -6,7 +6,7 @@ page can never drift out of sync with the ledger on the Transactions page.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -61,6 +61,8 @@ class Valuation:
     price_native: Decimal | None
     price_date: date | None  # trading day the price belongs to; None when falling back
     price_stale: bool
+    # When the price is the hourly live quote: the moment of that trade (UTC). None for a close.
+    price_quoted_at: datetime | None = None
 
 
 @dataclass
@@ -112,6 +114,21 @@ def _build_ledgers(transactions: list[Transaction]) -> dict[int, _AssetLedger]:
             ledger.cost_basis_eur = ZERO
 
     return ledgers
+
+
+def day_change(
+    quantity: Decimal, price_now: Decimal, fx_now: Decimal, price_before: Decimal, fx_before: Decimal
+) -> tuple[Decimal, Decimal | None]:
+    """A holding's move since yesterday's close, in euros and as a share of yesterday's value.
+
+    Both ends in euros at their own day's FX rate, so a dollar stock's figure includes what the
+    dollar did, the same way the portfolio's own daily return does. Held quantity at both ends:
+    a buy or sell today changes what's held, not what it earned."""
+    value_now = quantity * price_now * fx_now
+    value_before = quantity * price_before * fx_before
+    change = value_now - value_before
+    pct = change / value_before * 100 if value_before > ZERO else None
+    return change, pct
 
 
 class PositionService:
@@ -185,8 +202,10 @@ class PositionService:
                 results[position.asset_id] = Valuation(None, None, None, True)
                 continue
 
-            price_native = price_service.get_daily_price(db, asset)
-            price_date = price_service.price_as_of(db, asset)
+            current = price_service.get_current_price(db, asset)
+            price_native = current.price if current is not None else None
+            price_date = current.price_date if current is not None else None
+            quoted_at = current.quoted_at if current is not None else None
             stale = False
             if price_native is None:
                 # No provider data (unmapped/delisted symbol) — fall back to what it last
@@ -202,11 +221,43 @@ class PositionService:
                 fx_rate_by_currency[asset.native_currency] = price_service.get_fx_rate(db, asset.native_currency)
             fx_rate = fx_rate_by_currency[asset.native_currency]
 
-            results[position.asset_id] = Valuation(price_native * fx_rate * position.quantity, price_native, price_date, stale)
+            results[position.asset_id] = Valuation(
+                price_native * fx_rate * position.quantity, price_native, price_date, stale, quoted_at
+            )
 
         return results
 
-    def list_position_rows(self, db: Session, portfolio_id: int) -> list["PositionOut"]:
+    def day_changes(
+        self, db: Session, positions: list[Position], valuations: dict[int, "Valuation"], today: date
+    ) -> dict[int, tuple[Decimal, Decimal | None]]:
+        """Each valued holding's move since yesterday's close (see `day_change`): its current
+        price against the latest close on or before yesterday. A holding without a close that
+        old, or valued at a fallback price, has none."""
+        from app.repositories import asset_repo, price_repo
+
+        yesterday = today - timedelta(days=1)
+        assets_by_id = asset_repo.get_assets_by_ids(db, [p.asset_id for p in positions])
+        fx_now: dict[str, Decimal] = {}
+        fx_before: dict[str, Decimal] = {}
+        changes = {}
+        for position in positions:
+            valuation, asset = valuations.get(position.asset_id), assets_by_id.get(position.asset_id)
+            if asset is None or valuation is None or valuation.price_native is None or valuation.price_stale:
+                continue
+            before = price_repo.get_price_on_or_before(db, asset.id, yesterday)
+            if before is None:
+                continue
+            currency = asset.native_currency
+            if currency not in fx_now:
+                fx_now[currency] = price_service.get_fx_rate(db, currency)
+                fx_before[currency] = price_service.get_fx_rate(db, currency, yesterday)
+            changes[position.asset_id] = day_change(
+                position.quantity, valuation.price_native, fx_now[currency],
+                Decimal(str(before.close_price)), fx_before[currency],
+            )
+        return changes
+
+    def list_position_rows(self, db: Session, portfolio_id: int, today: date | None = None) -> list["PositionOut"]:
         """Every active holding valued and weighted, plus the synthetic cash row, sorted
         largest-first. Cash participates in the weighting because a target allocation is only
         meaningful against the whole portfolio — so it's built here rather than bolted on by a
@@ -219,6 +270,7 @@ class PositionService:
         dlt_judgments = asset_repo.dlt_judgments_by_asset_id(db)
         target_weights = portfolio_asset_target_repo.targets_by_asset_id(db, portfolio_id)
         valuations = self.valuations(db, active)
+        day_changes = self.day_changes(db, active, valuations, today or date.today())
 
         total_value = cash_eur + sum((valuations[p.asset_id].market_value_eur or ZERO) for p in active)
 
@@ -248,6 +300,9 @@ class PositionService:
                     cost_basis_eur=position.cost_basis_eur,
                     current_price_native=valuation.price_native,
                     price_date=valuation.price_date,
+                    price_quoted_at=valuation.price_quoted_at,
+                    day_change_eur=day_changes.get(position.asset_id, (None, None))[0],
+                    day_change_pct=day_changes.get(position.asset_id, (None, None))[1],
                     native_currency=position.native_currency,
                     market_value_eur=market_value,
                     unrealized_pnl_eur=unrealized_pnl,
@@ -277,6 +332,7 @@ class PositionService:
                 cost_basis_eur=cash_eur,
                 current_price_native=None,
                 price_date=None,
+                price_quoted_at=None,
                 native_currency="EUR",
                 market_value_eur=cash_eur,
                 unrealized_pnl_eur=ZERO,
@@ -294,6 +350,19 @@ class PositionService:
 
         rows.sort(key=lambda p: p.market_value_eur or ZERO, reverse=True)
         return rows
+
+
+def held_assets(db: Session) -> list:
+    """Every asset held in any portfolio, each once. For the price and quote refreshes only:
+    prices are shared across portfolios (docs/adr/0019), so they're fetched once per asset
+    however many portfolios hold it. Never a basis for a figure summed across portfolios."""
+    from app.repositories import asset_repo, portfolio_repo
+
+    assets_by_id = {}
+    for portfolio in portfolio_repo.list_portfolios(db, include_archived=True):
+        active, _closed = position_service.get_positions(db, portfolio.id)
+        assets_by_id.update(asset_repo.get_assets_by_ids(db, [p.asset_id for p in active]))
+    return list(assets_by_id.values())
 
 
 def portfolio_value_eur(db: Session, portfolio_id: int) -> Decimal:

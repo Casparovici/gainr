@@ -1,6 +1,6 @@
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.gripr_recurring import GriprRecurrenceFrequency, GriprRecurringTransaction
@@ -48,6 +48,17 @@ def update_recurring(db: Session, rule: GriprRecurringTransaction, **fields) -> 
         setattr(rule, key, value)
     db.flush()
     return rule
+
+
+def clear_category(db: Session, category_ids: list[int]) -> None:
+    """A rule filed under a deleted category keeps running, uncategorised -- like the
+    transactions it already booked (gripr_transaction_repo.clear_category)."""
+    db.execute(
+        update(GriprRecurringTransaction)
+        .where(GriprRecurringTransaction.category_id.in_(category_ids))
+        .values(category_id=None)
+    )
+    db.flush()
 
 
 def delete_recurring(db: Session, rule: GriprRecurringTransaction) -> None:

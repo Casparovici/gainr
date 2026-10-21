@@ -3,15 +3,16 @@ import { useState } from "react";
 
 import { currentPeriodStart, periodBounds, shiftPeriod } from "../../utils/griprPeriod";
 import GriprSettingsDialog from "./GriprSettingsDialog";
+import { dateLocale, t } from "../../i18n";
 
 export function formatPeriodLabel(periodStart: string, startDay: number): string {
   if (startDay === 1) {
     // The common case, unchanged from before this setting existed.
-    return new Date(periodStart + "T00:00:00").toLocaleDateString("en-IE", { month: "long", year: "numeric" });
+    return new Date(periodStart + "T00:00:00").toLocaleDateString(dateLocale("en-IE"), { month: "long", year: "numeric" });
   }
   const { end } = periodBounds(periodStart, startDay);
-  const day = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short" });
-  const year = new Date(end + "T00:00:00").toLocaleDateString("en-IE", { year: "numeric" });
+  const day = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString(dateLocale("en-IE"), { day: "numeric", month: "short" });
+  const year = new Date(end + "T00:00:00").toLocaleDateString(dateLocale("en-IE"), { year: "numeric" });
   return `${day(periodStart)} – ${day(end)} ${year}`;
 }
 
@@ -35,7 +36,7 @@ export default function PeriodSwitcher({
       <button
         type="button"
         onClick={() => onChange(shiftPeriod(periodStart, -1))}
-        aria-label="Previous period"
+        aria-label={t("Previous period")}
         className="flex h-10 w-10 items-center justify-center rounded-xl text-on-surface-variant hover:bg-on-surface/10 hover:text-on-surface"
       >
         <ChevronLeft className="h-5 w-5" />
@@ -46,7 +47,7 @@ export default function PeriodSwitcher({
       <button
         type="button"
         onClick={() => onChange(shiftPeriod(periodStart, 1))}
-        aria-label="Next period"
+        aria-label={t("Next period")}
         className="flex h-10 w-10 items-center justify-center rounded-xl text-on-surface-variant hover:bg-on-surface/10 hover:text-on-surface"
       >
         <ChevronRight className="h-5 w-5" />
@@ -54,9 +55,10 @@ export default function PeriodSwitcher({
       <button
         type="button"
         onClick={() => setSettingsOpen(true)}
-        aria-label="Settings"
-        title="Settings: when a period starts, and your banks"
-        className="ml-1 rounded-full p-1.5 text-on-surface-variant hover:bg-on-surface/10 hover:text-on-surface"
+        aria-label={t("Settings")}
+        title={t("Settings: when a period starts, and your banks")}
+        // From tablet width up the shared header carries gripr's gear (App.tsx).
+        className="ml-1 rounded-full p-1.5 sm:hidden text-on-surface-variant hover:bg-on-surface/10 hover:text-on-surface"
       >
         <Settings className="h-4 w-4" />
       </button>

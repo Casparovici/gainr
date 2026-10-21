@@ -194,17 +194,54 @@ def test_suggestions_previous_month_is_the_month_right_before(db_session):
     assert line.previous_month == Decimal(80)
 
 
-def test_suggestions_year_average_is_the_trailing_twelve_months_divided_by_twelve(db_session):
+def test_suggestions_year_average_is_actual_spend_over_the_trailing_twelve_months_divided_by_twelve(db_session):
+    checking = make_account(db_session, "ING")
     food = make_category(db_session, "Eten & Drinken")
-    gripr_budget_service.set_budget(db_session, food.id, date(2026, 1, 1), Decimal(120))
-    gripr_budget_service.set_budget(db_session, food.id, date(2026, 2, 1), Decimal(60))
+    make_txn(db_session, date(2026, 1, 10), GriprTransactionType.EXPENSE, "120", checking, category=food)
+    make_txn(db_session, date(2026, 2, 10), GriprTransactionType.EXPENSE, "60", checking, category=food)
     # Outside the trailing-12-month window ending at February — must not count.
-    gripr_budget_service.set_budget(db_session, food.id, date(2024, 12, 1), Decimal(999))
+    make_txn(db_session, date(2024, 12, 10), GriprTransactionType.EXPENSE, "999", checking, category=food)
 
     suggestions = gripr_budget_service.get_suggestions(db_session, date(2026, 3, 1))
     line = next(s for s in suggestions if s.category_id == food.id)
 
     assert line.year_average == Decimal("15.00")  # (120 + 60) / 12
+
+
+def test_suggestions_year_average_ignores_the_budgets_set_for_the_category(db_session):
+    checking = make_account(db_session, "ING")
+    food = make_category(db_session, "Eten & Drinken")
+    make_txn(db_session, date(2026, 1, 10), GriprTransactionType.EXPENSE, "120", checking, category=food)
+    # A budget far from what was spent must not drag the average towards itself.
+    gripr_budget_service.set_budget(db_session, food.id, date(2026, 1, 1), Decimal(500))
+    gripr_budget_service.set_budget(db_session, food.id, date(2026, 2, 1), Decimal(500))
+
+    suggestions = gripr_budget_service.get_suggestions(db_session, date(2026, 3, 1))
+    line = next(s for s in suggestions if s.category_id == food.id)
+
+    assert line.year_average == Decimal("10.00")  # 120 / 12, not (500 + 500 + 120) / 12
+
+
+def test_suggestions_year_average_is_zero_for_a_budget_with_no_spending(db_session):
+    food = make_category(db_session, "Eten & Drinken")
+    gripr_budget_service.set_budget(db_session, food.id, date(2026, 1, 1), Decimal(300))
+
+    suggestions = gripr_budget_service.get_suggestions(db_session, date(2026, 3, 1))
+    line = next(s for s in suggestions if s.category_id == food.id)
+
+    assert line.year_average == 0
+
+
+def test_suggestions_year_average_for_an_income_category_is_income_received(db_session):
+    checking = make_account(db_session, "ING")
+    salary = make_category(db_session, "Salaris", kind=GriprCategoryKind.INCOME)
+    make_txn(db_session, date(2026, 1, 25), GriprTransactionType.INCOME, "3000", checking, category=salary)
+    make_txn(db_session, date(2026, 2, 25), GriprTransactionType.INCOME, "3000", checking, category=salary)
+
+    suggestions = gripr_budget_service.get_suggestions(db_session, date(2026, 3, 1))
+    line = next(s for s in suggestions if s.category_id == salary.id)
+
+    assert line.year_average == Decimal("500.00")  # (3000 + 3000) / 12
 
 
 def test_suggestions_recurring_monthly_normalizes_by_frequency_and_rolls_up_subcategories(db_session):
@@ -290,6 +327,65 @@ def test_set_savings_goal_keys_on_the_periods_start_date_not_the_1st(db_session)
     assert gripr_savings_goal_repo.get_goal(db_session, savings.id, date(2026, 9, 1)) is None
 
 
+def test_savings_room_is_budgeted_income_minus_budgeted_expenses(db_session):
+    salary = make_category(db_session, "Salaris", kind=GriprCategoryKind.INCOME)
+    other = make_category(db_session, "Overig", kind=GriprCategoryKind.INCOME)
+    rent = make_category(db_session, "Huur")
+    food = make_category(db_session, "Eten")
+    month = date(2026, 3, 1)
+    gripr_budget_service.set_budget(db_session, salary.id, month, Decimal("3200"))
+    gripr_budget_service.set_budget(db_session, other.id, month, Decimal("100.50"))
+    gripr_budget_service.set_budget(db_session, rent.id, month, Decimal("1200"))
+    gripr_budget_service.set_budget(db_session, food.id, month, Decimal("450.25"))
+
+    room = gripr_budget_service.get_savings_room(db_session, month)
+
+    assert room.income_budgeted == Decimal("3300.50")
+    assert room.expense_budgeted == Decimal("1650.25")
+    assert room.room == Decimal("1650.25")
+
+
+def test_savings_room_leaves_what_the_goals_do_not_plan_yet(db_session):
+    salary = make_category(db_session, "Salaris", kind=GriprCategoryKind.INCOME)
+    rent = make_category(db_session, "Huur")
+    spaar = make_account(db_session, "Spaar", type_=GriprAccountType.SAVINGS)
+    depot = make_account(db_session, "DEGIRO", type_=GriprAccountType.INVESTMENT)
+    month = date(2026, 3, 1)
+    gripr_budget_service.set_budget(db_session, salary.id, month, Decimal(3000))
+    gripr_budget_service.set_budget(db_session, rent.id, month, Decimal(1000))
+    gripr_budget_service.set_savings_goal(db_session, spaar.id, month, Decimal(500))
+    gripr_budget_service.set_savings_goal(db_session, depot.id, month, Decimal(300))
+
+    room = gripr_budget_service.get_savings_room(db_session, month)
+
+    assert (room.room, room.goals_budgeted, room.unallocated) == (Decimal(2000), Decimal(800), Decimal(1200))
+
+
+def test_savings_room_goes_negative_when_expenses_outgrow_income_and_ignores_actuals(db_session):
+    salary = make_category(db_session, "Salaris", kind=GriprCategoryKind.INCOME)
+    rent = make_category(db_session, "Huur")
+    checking = make_account(db_session, "ING")
+    month = date(2026, 3, 1)
+    gripr_budget_service.set_budget(db_session, salary.id, month, Decimal(1000))
+    gripr_budget_service.set_budget(db_session, rent.id, month, Decimal(1500))
+    # What was actually spent or received doesn't move a figure that is about the plan.
+    make_txn(db_session, date(2026, 3, 2), GriprTransactionType.EXPENSE, "900", checking, category=rent)
+
+    room = gripr_budget_service.get_savings_room(db_session, month)
+
+    assert room.room == Decimal(-500)
+    assert room.unallocated == Decimal(-500)
+
+
+def test_savings_room_is_zero_without_a_budget_and_is_per_period(db_session):
+    salary = make_category(db_session, "Salaris", kind=GriprCategoryKind.INCOME)
+    gripr_budget_service.set_budget(db_session, salary.id, date(2026, 3, 1), Decimal(3000))
+
+    other_month = gripr_budget_service.get_savings_room(db_session, date(2026, 4, 1))
+
+    assert (other_month.room, other_month.goals_budgeted, other_month.unallocated) == (Decimal(0), Decimal(0), Decimal(0))
+
+
 def test_savings_status_excludes_a_future_dated_transfer(db_session):
     checking = make_account(db_session, "ING")
     savings = make_account(db_session, "ING Spaarrekening", type_=GriprAccountType.SAVINGS)
@@ -303,17 +399,22 @@ def test_savings_status_excludes_a_future_dated_transfer(db_session):
 
 
 def test_savings_suggestions_previous_month_and_year_average(db_session):
+    checking = make_account(db_session, "ING")
     savings = make_account(db_session, "ING Spaarrekening", type_=GriprAccountType.SAVINGS)
-    gripr_budget_service.set_savings_goal(db_session, savings.id, date(2026, 1, 1), Decimal(300))
+    gripr_budget_service.set_savings_goal(db_session, savings.id, date(2026, 1, 1), Decimal(999))
     gripr_budget_service.set_savings_goal(db_session, savings.id, date(2026, 2, 1), Decimal(150))
+    make_txn(db_session, date(2026, 1, 25), GriprTransactionType.TRANSFER, "300", checking, counter_account=savings)
+    make_txn(db_session, date(2026, 2, 25), GriprTransactionType.TRANSFER, "150", checking, counter_account=savings)
+    # Taken back out in February: lowers what was saved, so it's netted off.
+    make_txn(db_session, date(2026, 2, 26), GriprTransactionType.TRANSFER, "50", savings, counter_account=checking)
     # Outside the trailing-12-month window ending at February — must not count.
-    gripr_budget_service.set_savings_goal(db_session, savings.id, date(2024, 12, 1), Decimal(999))
+    make_txn(db_session, date(2024, 12, 25), GriprTransactionType.TRANSFER, "999", checking, counter_account=savings)
 
     suggestions = gripr_budget_service.get_savings_suggestions(db_session, date(2026, 3, 1))
     line = next(s for s in suggestions if s.account_id == savings.id)
 
     assert line.previous_month == Decimal(150)
-    assert line.year_average == Decimal("37.50")  # (300 + 150) / 12
+    assert line.year_average == Decimal("33.33")  # (300 + 150 - 50) / 12, the goals set don't count
 
 
 def test_savings_suggestions_recurring_monthly_uses_transfer_rules_into_the_account(db_session):
@@ -583,6 +684,19 @@ def test_delete_category_untags_its_transactions_instead_of_deleting_them(db_ses
 
     assert gripr_category_repo.get_category(db_session, groceries.id) is None
     assert txn.category_id is None  # the transaction itself survives, just un-tagged
+
+
+def test_delete_category_keeps_its_recurring_rules_running_uncategorised(db_session):
+    checking = make_account(db_session, "ING")
+    insurance = make_category(db_session, "Verzekering")
+    rule = make_recurring(db_session, "Zorgverzekering", date(2026, 1, 1), checking, category_id=insurance.id)
+
+    gripr_category_service.delete_category(db_session, insurance)
+    db_session.flush()
+
+    db_session.refresh(rule)
+    assert rule.category_id is None
+    assert rule.is_active
 
 
 def test_delete_top_level_category_cascades_to_subcategories_and_their_transactions(db_session):

@@ -9,6 +9,7 @@ import PicnicConnectCard from "../../components/listr/PicnicConnectCard";
 import { IconChevronLeft, ModuleTopRow, PageTitle, inputClass, secondaryButtonClass } from "../../components/ui/kit";
 import { usePicnicConnect } from "../../hooks/usePicnicConnect";
 import { formatEur } from "../../utils/format";
+import { t } from "../../i18n";
 
 const sectionAnchor = (index: number) => `aanbieding-sectie-${index}`;
 
@@ -44,7 +45,7 @@ function OfferCard({
           type="button"
           onClick={onAdd}
           disabled={adding}
-          aria-label={inCart ? `Nog een ${offer.name} in winkelwagen (${inCart} erin)` : `${offer.name} in winkelwagen`}
+          aria-label={inCart ? t("Nog een {name} in winkelwagen ({count} erin)", { name: offer.name, count: inCart }) : t("{name} in winkelwagen", { name: offer.name })}
           className={`flex h-10 shrink-0 items-center justify-center gap-1 rounded-xl px-2.5 text-sm font-semibold disabled:opacity-50 ${
             inCart ? "bg-ui-brand-soft text-ui-brand-strong" : "bg-ui-brand text-white hover:bg-ui-brand-strong"
           }`}
@@ -100,13 +101,11 @@ export default function ListrPicnicOffers() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow
         left={
-          <Link to="/listr/winkelwagen" aria-label="Terug naar winkelwagen" className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
-            <IconChevronLeft size={20} />
-            Winkelwagen
-          </Link>
+          <Link to="/listr/winkelwagen" aria-label={t("Terug naar winkelwagen")} className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
+            <IconChevronLeft size={20} />{t("Winkelwagen")}</Link>
         }
       >
-        <Link to="/listr/winkelwagen" aria-label={`Winkelwagen, ${cartCount} producten`} className={`${secondaryButtonClass} relative no-underline`}>
+        <Link to="/listr/winkelwagen" aria-label={t("Winkelwagen, {count} producten", { count: cartCount })} className={`${secondaryButtonClass} relative no-underline`}>
           <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={2} />
           {cartCount > 0 && (
             <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ui-brand px-1 text-[11px] font-bold text-white">
@@ -115,29 +114,29 @@ export default function ListrPicnicOffers() {
           )}
         </Link>
       </ModuleTopRow>
-      <PageTitle subtitle={promotionsQuery.data ? `${total} aanbiedingen bij Picnic` : "Deze week bij Picnic"}>Aanbiedingen</PageTitle>
+      <PageTitle subtitle={promotionsQuery.data ? t("{total} aanbiedingen bij Picnic", { total }) : t("Deze week bij Picnic")}>{t("Aanbiedingen")}</PageTitle>
 
       {!picnic.status ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
       ) : !picnic.status.configured || !connected ? (
-        <PicnicConnectCard picnic={picnic} reason="Verbind met Picnic om de aanbiedingen te zien." />
+        <PicnicConnectCard picnic={picnic} reason={t("Verbind met Picnic om de aanbiedingen te zien.")} />
       ) : promotionsQuery.isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Aanbiedingen ophalen bij Picnic…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Aanbiedingen ophalen bij Picnic…")}</div>
       ) : promotionsQuery.isError ? (
-        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">Aanbiedingen ophalen is mislukt. Probeer het later opnieuw.</div>
+        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">{t("Aanbiedingen ophalen is mislukt. Probeer het later opnieuw.")}</div>
       ) : total === 0 ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Picnic heeft nu geen aanbiedingen.</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Picnic heeft nu geen aanbiedingen.")}</div>
       ) : (
         <>
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             inputMode="search"
-            placeholder="Zoek in de aanbiedingen…"
-            aria-label="Zoek in de aanbiedingen"
+            placeholder={t("Zoek in de aanbiedingen…")}
+            aria-label={t("Zoek in de aanbiedingen")}
             className={`${inputClass} sm:max-w-sm`}
           />
-          <nav aria-label="Secties" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]">
+          <nav aria-label={t("Secties")} className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]">
             {sections.map((section, i) => (
               <a
                 key={section.title + i}
@@ -150,14 +149,12 @@ export default function ListrPicnicOffers() {
           </nav>
           {lastAdded && (
             <p className="m-0 text-sm text-ui-ink-soft" role="status">
-              {lastAdded} staat in je winkelwagen.{" "}
-              <Link to="/listr/winkelwagen" className="font-semibold text-ui-brand-strong">
-                Naar winkelwagen ›
-              </Link>
+              {lastAdded}{" "}{t("staat in je winkelwagen.")}{" "}
+              <Link to="/listr/winkelwagen" className="font-semibold text-ui-brand-strong">{t("Naar winkelwagen ›")}</Link>
             </p>
           )}
-          {addMutation.isError && <p className="m-0 text-sm text-ui-late">Toevoegen is mislukt. Probeer het opnieuw.</p>}
-          {sections.length === 0 && <p className="m-0 text-sm text-ui-muted">Geen aanbieding met "{filter}".</p>}
+          {addMutation.isError && <p className="m-0 text-sm text-ui-late">{t("Toevoegen is mislukt. Probeer het opnieuw.")}</p>}
+          {sections.length === 0 && <p className="m-0 text-sm text-ui-muted">{t("Geen aanbieding met \"{filter}\".", { filter: filter })}</p>}
           {sections.map((section, i) => (
             <section key={section.title + i} id={sectionAnchor(i)} className="flex scroll-mt-4 flex-col gap-2">
               <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{section.title}</h2>

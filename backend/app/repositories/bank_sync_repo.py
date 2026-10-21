@@ -246,3 +246,71 @@ def find_unclaimed_match(
     if not candidates:
         return None
     return min(candidates, key=lambda t: (abs((t.date - around).days), t.id))
+
+
+def find_unfiled_amount_only_entry(
+    db: Session,
+    account_ids: set[int],
+    amount: Decimal,
+    type_: GriprTransactionType,
+    around: date,
+    days: int,
+    prefixes: list[str],
+) -> tuple[GriprTransaction, BankSyncedTransaction] | None:
+    """The row an amount-only bank booked for a payment the reader hasn't entered or filed yet:
+    booked as is (not matched, not a rule's), still uncategorised, not already claimed by a hand
+    entry. Closest-dated first -- the bank dates it a few days after the purchase."""
+    if not prefixes:
+        return None
+    from_bank = BankSyncedTransaction.reference.startswith(f"{prefixes[0]}:")
+    for prefix in prefixes[1:]:
+        from_bank = from_bank | BankSyncedTransaction.reference.startswith(f"{prefix}:")
+    query = (
+        select(GriprTransaction, BankSyncedTransaction)
+        .join(BankSyncedTransaction, BankSyncedTransaction.gripr_transaction_id == GriprTransaction.id)
+        .where(
+            from_bank,
+            BankSyncedTransaction.outcome == "booked",
+            GriprTransaction.account_id.in_(account_ids),
+            GriprTransaction.type == type_,
+            GriprTransaction.amount == amount,
+            GriprTransaction.category_id.is_(None),
+            GriprTransaction.date >= around - timedelta(days=days),
+            GriprTransaction.date <= around + timedelta(days=days),
+        )
+    )
+    rows = db.execute(query).all()
+    if not rows:
+        return None
+    row, record = min(rows, key=lambda r: (abs((r[0].date - around).days), r[0].id))
+    return row, record
+
+
+def merchant_of(db: Session, transaction_id: int) -> str | None:
+    """The counterparty key the bank sync recorded for this gripr transaction, if it came from (or
+    was matched to) a bank entry."""
+    query = (
+        select(BankSyncedTransaction.merchant)
+        .where(BankSyncedTransaction.gripr_transaction_id == transaction_id, BankSyncedTransaction.merchant.is_not(None))
+        .limit(1)
+    )
+    return db.execute(query).scalar_one_or_none()
+
+
+def uncategorised_from_merchant(
+    db: Session, merchant: str, type_: GriprTransactionType, exclude_id: int
+) -> list[GriprTransaction]:
+    """Other bank-synced transactions of this type from the same counterparty that still have no
+    category -- what "apply to similar" offers to file. Ones the reader categorised are left alone."""
+    query = (
+        select(GriprTransaction)
+        .join(BankSyncedTransaction, BankSyncedTransaction.gripr_transaction_id == GriprTransaction.id)
+        .where(
+            BankSyncedTransaction.merchant == merchant,
+            GriprTransaction.category_id.is_(None),
+            GriprTransaction.type == type_,
+            GriprTransaction.id != exclude_id,
+        )
+        .order_by(GriprTransaction.date.desc())
+    )
+    return list(db.execute(query).scalars().unique().all())

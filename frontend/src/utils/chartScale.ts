@@ -28,3 +28,19 @@ export function clampTo(value: number, range: { min: number; max: number } | nul
   if (!range) return value;
   return Math.min(range.max, Math.max(range.min, value));
 }
+
+/** Round axis ticks spanning [min, max] (which must straddle 0, as the put-aside chart's always do):
+ * multiples of a 1/2/5 × 10^n step, so 0 is always one of them and the labels read as plain numbers
+ * instead of the padded edges of the data. */
+export function niceTicks(min: number, max: number, target = 5): number[] {
+  const span = max - min;
+  if (!(span > 0)) return [0];
+  const raw = span / target;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = ([1, 2, 5, 10].find((m) => m * magnitude >= raw) ?? 10) * magnitude;
+  const ticks: number[] = [];
+  for (let t = Math.floor(min / step) * step; t <= Math.ceil(max / step) * step + step / 2; t += step) {
+    ticks.push(Math.round(t / step) * step);
+  }
+  return ticks;
+}

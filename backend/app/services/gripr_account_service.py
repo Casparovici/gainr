@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.models.gripr_account import GriprAccount, GriprBalanceMode
 from app.models.gripr_transaction import GriprTransactionType
 from app.repositories import gripr_account_repo, gripr_transaction_repo
+from app.services.errors import InvalidRequest, NotFound
+from app.services.gripr_bank_logo_service import GRIPR_BANKS
 
 
 @dataclass
@@ -49,3 +51,18 @@ def owed_to_you(db: Session) -> Decimal:
 
 def net_worth(db: Session) -> Decimal:
     return sum((ab.balance for ab in list_with_balances(db)), Decimal(0)) + owed_to_you(db)
+
+
+def update_account(db: Session, account: GriprAccount, fields: dict) -> GriprAccount:
+    """A bank icon must be one gripr knows. A pot (`held_in_account_id`) sits inside a real
+    account, one level deep: not inside itself or another pot, and an account holding pots can't
+    become one (ADR 0029, "Virtual pots")."""
+    if fields.get("bank_logo_key") is not None and fields["bank_logo_key"] not in GRIPR_BANKS:
+        raise InvalidRequest("Unknown bank_logo_key")
+    if fields.get("held_in_account_id") is not None:
+        parent = gripr_account_repo.get_account(db, fields["held_in_account_id"])
+        if parent is None:
+            raise NotFound("Account not found")
+        if parent.id == account.id or parent.held_in_account_id is not None or gripr_account_repo.has_pots(db, account.id):
+            raise InvalidRequest("A pot sits inside a real account, one level deep")
+    return gripr_account_repo.update_account(db, account, **fields)

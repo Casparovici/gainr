@@ -4,11 +4,16 @@ ledger row and so need a persistent cursor). A schedule's due date is just "last
 action was logged, plus the interval", recomputed fresh on every read.
 """
 
+from dataclasses import dataclass
 from datetime import date as date_
 
 from dateutil.relativedelta import relativedelta
 
+from sqlalchemy.orm import Session
+
 from app.models.garden_care import GardenCareLog, GardenCareSchedule, GardenScheduleFrequency
+from app.models.garden_plant import GardenPlant
+from app.repositories import garden_care_repo, garden_plant_repo
 from app.schemas.gardnr import GardenActionSummary
 
 _UNIT = {
@@ -81,3 +86,42 @@ def soonest_due_action(
 
 def is_overdue(due_date: date_, today: date_ | None = None) -> bool:
     return due_date <= (today or date_.today())
+
+
+# -- per plant, read from the database ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PlantCare:
+    last_action: GardenActionSummary | None
+    scheduled: list[GardenActionSummary]  # soonest first
+
+    @property
+    def next_action(self) -> GardenActionSummary | None:
+        return self.scheduled[0] if self.scheduled else None
+
+
+def care_by_plant(db: Session, plants: list[GardenPlant], today: date_ | None = None) -> dict[int, PlantCare]:
+    """What was last done to each plant and what's due next, in two queries for all of them."""
+    ids = [p.id for p in plants]
+    logs = garden_care_repo.list_logs_for_plants(db, ids)
+    schedules = garden_care_repo.list_schedules_for_plants(db, ids)
+    return {
+        p.id: PlantCare(
+            last_action=latest_action(logs.get(p.id, [])),
+            scheduled=scheduled_actions(schedules.get(p.id, []), logs.get(p.id, []), today),
+        )
+        for p in plants
+    }
+
+
+def overdue_plants_by_area(db: Session) -> dict[int, int]:
+    """How many plants in each area have something overdue."""
+    plants = garden_plant_repo.list_plants(db)
+    care = care_by_plant(db, plants)
+    counts: dict[int, int] = {}
+    for plant in plants:
+        due = care[plant.id].next_action
+        if due is not None and due.is_overdue:
+            counts[plant.area_id] = counts.get(plant.area_id, 0) + 1
+    return counts

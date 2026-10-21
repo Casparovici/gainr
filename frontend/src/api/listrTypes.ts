@@ -46,6 +46,8 @@ export interface ListrList {
   updated_at: string;
   item_count: number;
   checked_count: number;
+  /** The supermarket whose aisle order the list follows; null = the standard order. */
+  store_id: number | null;
 }
 
 export interface ListrListItem {
@@ -68,6 +70,20 @@ export interface ListrListItem {
 
 export interface ListrListDetail extends ListrList {
   items: ListrListItem[];
+  /** Every category id in the order this list shows its groups: the store's aisles, then the rest. */
+  category_order: number[];
+}
+
+/** A supermarket, and the order its aisles come in (docs/adr/0052). */
+export interface ListrStore {
+  id: number;
+  name: string;
+  sort_order: number;
+  is_archived: boolean;
+  /** The aisles the store has been arranged, first to last. */
+  category_ids: number[];
+  /** Every category in the order a list for this store shows them: those aisles, then the rest. */
+  category_order: number[];
 }
 
 export interface ListrRecipeIngredient {
@@ -106,8 +122,11 @@ export interface ListrRecipe {
   updated_at: string;
   ingredients: ListrRecipeIngredient[];
   categories: ListrRecipeCategory[];
+  has_photo: boolean;
   /** Set when imported from Mealie -- the next import overwrites edits made in listr. */
   mealie_id: string | null;
+  /** The page a recipe planned from a briefr suggestion came from. */
+  source_url: string | null;
 }
 
 export interface ListrRecipeInput {
@@ -125,14 +144,42 @@ export interface ListrMealPlanEntry {
   date: string;
   recipe_id: number | null;
   recipe_title: string | null;
+  leftover_id: number | null;
+  leftover_name: string | null;
   is_cooked: boolean;
   notes: string | null;
 }
 
 export interface ListrMealPlanInput {
   recipe_id: number | null;
+  leftover_id: number | null;
   is_cooked: boolean;
   notes: string | null;
+}
+
+// -- leftovers (see docs/adr/0036-listr-leftovers.md) --------------------------------------------
+
+export type ListrLeftoverLocation = "freezer" | "fridge";
+
+export interface ListrLeftover {
+  id: number;
+  name: string;
+  recipe_id: number | null;
+  meals: number;
+  servings_per_meal: number | null;
+  location: ListrLeftoverLocation;
+  stored_on: string;
+  use_by: string;
+}
+
+export interface ListrLeftoverInput {
+  name: string;
+  recipe_id: number | null;
+  meals: number;
+  servings_per_meal: number | null;
+  location: ListrLeftoverLocation;
+  /** Blank lets the server pick: 3 days in the fridge, 90 in the freezer. */
+  use_by: string | null;
 }
 
 export interface ListrPopularRecipe {

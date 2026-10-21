@@ -5,6 +5,7 @@ import { listrApi } from "../../api/listrClient";
 import type { ListrMealieImportResult, ListrMealieRecipeStatus, ListrMealieUnmatchedFood } from "../../api/listrTypes";
 import ModalOverlay from "../ModalOverlay";
 import AddItemCombobox from "./AddItemCombobox";
+import { t, tp } from "../../i18n";
 
 type Pick = { id: number; name: string };
 
@@ -25,7 +26,7 @@ function serverMessage(error: unknown): string {
   } catch {
     // not a JSON body -- fall through to the generic message
   }
-  return "Er ging iets mis bij het ophalen uit Mealie.";
+  return t("Er ging iets mis bij het ophalen uit Mealie.");
 }
 
 function FoodRow({
@@ -47,9 +48,7 @@ function FoodRow({
         {pick ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm">
             <span className="truncate text-slate-900">✓ {pick.name}</span>
-            <button type="button" onClick={() => onPick(null)} className="shrink-0 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-900">
-              Wijzigen
-            </button>
+            <button type="button" onClick={() => onPick(null)} className="shrink-0 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-900">{t("Wijzigen")}</button>
           </div>
         ) : (
           <AddItemCombobox initialQuery={food.name} onSelect={(item) => onPick({ id: item.id, name: item.name })} />
@@ -121,37 +120,36 @@ export default function MealieImportDialog({ onClose }: { onClose: () => void })
 
   return (
     <ModalOverlay onClose={onClose} cardClassName="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg bg-white p-5 shadow-lg">
-      <h2 className="text-base font-semibold text-slate-900">Ophalen uit Mealie</h2>
+      <h2 className="text-base font-semibold text-slate-900">{t("Ophalen uit Mealie")}</h2>
 
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
         {result ? (
           <div className="flex flex-col gap-1 px-1 py-6 text-center text-sm text-slate-700">
-            <p className="font-medium text-slate-900">Klaar.</p>
+            <p className="font-medium text-slate-900">{t("Klaar.")}</p>
             <p>
-              {result.created} {result.created === 1 ? "recept" : "recepten"} toegevoegd, {result.updated} bijgewerkt
-              {result.unchanged > 0 && `, ${result.unchanged} al up-to-date`}.
+              {tp(result.created, "{n} recept toegevoegd, {updated} bijgewerkt", "{n} recepten toegevoegd, {updated} bijgewerkt", { updated: result.updated })}
+              {result.unchanged > 0 && t(", {unchanged} al up-to-date", { unchanged: result.unchanged })}.
             </p>
           </div>
         ) : previewQuery.isLoading ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">Recepten ophalen uit Mealie…</div>
+          <div className="px-4 py-8 text-center text-sm text-slate-400">{t("Recepten ophalen uit Mealie…")}</div>
         ) : previewQuery.isError || !preview ? (
           <div className="flex flex-col items-center gap-3 px-4 py-8 text-center text-sm">
             <p className="text-red-600">{serverMessage(previewQuery.error)}</p>
-            <button onClick={() => previewQuery.refetch()} className="font-medium text-slate-900 underline">
-              Opnieuw proberen
-            </button>
+            <button onClick={() => previewQuery.refetch()} className="font-medium text-slate-900 underline">{t("Opnieuw proberen")}</button>
           </div>
         ) : preview.recipes.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">Er staan nog geen recepten in Mealie.</div>
+          <div className="px-4 py-8 text-center text-sm text-slate-400">{t("Er staan nog geen recepten in Mealie.")}</div>
         ) : pending.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-500">
-            Alles is al bijgewerkt — {unchangedCount} {unchangedCount === 1 ? "recept" : "recepten"} ongewijzigd sinds de vorige import.
-          </div>
+          <div className="px-4 py-8 text-center text-sm text-slate-500">{tp(
+              unchangedCount,
+              "Alles is al bijgewerkt — {n} recept ongewijzigd sinds de vorige import.",
+              "Alles is al bijgewerkt — {n} recepten ongewijzigd sinds de vorige import.",
+            )}</div>
         ) : (
           <div className="flex flex-col gap-5">
             <section className="flex flex-col gap-1.5">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Recepten{unchangedCount > 0 && ` · ${unchangedCount} ongewijzigd`}
+              <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Recepten")}{unchangedCount > 0 && ` · ${t("{unchanged} ongewijzigd", { unchanged: unchangedCount })}`}
               </h3>
               <ul className="flex flex-col gap-1">
                 {pending.map((r) => (
@@ -162,17 +160,14 @@ export default function MealieImportDialog({ onClose }: { onClose: () => void })
                 ))}
               </ul>
               {pending.some((r) => r.status === "changed") && (
-                <p className="text-xs text-slate-500">Gewijzigde recepten worden overschreven met de versie uit Mealie.</p>
+                <p className="text-xs text-slate-500">{t("Gewijzigde recepten worden overschreven met de versie uit Mealie.")}</p>
               )}
             </section>
 
             {unmatched.length > 0 && (
               <section className="flex flex-col gap-1.5">
-                <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">Ingrediënten koppelen</h3>
-                <p className="text-xs text-slate-500">
-                  Welk product uit je Producten is dit? Een voorstel staat al klaar waar er een past. Je kiest dit eenmalig — de keuze wordt
-                  onthouden voor volgende recepten.
-                </p>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("Ingrediënten koppelen")}</h3>
+                <p className="text-xs text-slate-500">{t("Welk product uit je Producten is dit? Een voorstel staat al klaar waar er een past. Je kiest dit eenmalig — de keuze wordt onthouden voor volgende recepten.")}</p>
                 <ul className="divide-y divide-slate-100">
                   {unmatched.map((food) => (
                     <FoodRow
@@ -194,16 +189,14 @@ export default function MealieImportDialog({ onClose }: { onClose: () => void })
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
         {!result && openCount > 0 && (
           // Its own line on a phone, beside the buttons from sm up, so the buttons never wrap.
-          <span className="w-full text-xs text-amber-600 sm:mr-auto sm:w-auto">
-            Nog {openCount} {openCount === 1 ? "ingrediënt" : "ingrediënten"} te koppelen
-          </span>
+          <span className="w-full text-xs text-amber-600 sm:mr-auto sm:w-auto">{tp(openCount, "Nog {n} ingrediënt te koppelen", "Nog {n} ingrediënten te koppelen")}</span>
         )}
         <button
           type="button"
           onClick={onClose}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          {result ? "Sluiten" : "Annuleren"}
+          {result ? t("Sluiten") : t("Annuleren")}
         </button>
         {!result && pending.length > 0 && (
           <button
@@ -212,7 +205,7 @@ export default function MealieImportDialog({ onClose }: { onClose: () => void })
             onClick={() => importMutation.mutate()}
             className="whitespace-nowrap rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
-            {importMutation.isPending ? "Bezig…" : `Importeren (${pending.length})`}
+            {importMutation.isPending ? t("Bezig…") : t("Importeren ({count})", { count: pending.length })}
           </button>
         )}
       </div>

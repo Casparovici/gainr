@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,7 +31,7 @@ def get_history(db: Session, asset_id: int, start: date, end: date) -> list[Pric
     return list(db.execute(query).scalars().all())
 
 
-def upsert_prices(db: Session, asset_id: int, prices: dict[date, float]) -> None:
+def upsert_prices(db: Session, asset_id: int, prices: dict[date, Decimal]) -> None:
     if not prices:
         return
     existing_dates = {
