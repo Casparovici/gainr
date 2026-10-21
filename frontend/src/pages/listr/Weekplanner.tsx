@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { listrApi } from "../../api/listrClient";
-import type { ListrMealPlanEntry, ListrMealPlanInput } from "../../api/listrTypes";
+import type { ListrLeftoverInput, ListrMealPlanEntry, ListrMealPlanInput } from "../../api/listrTypes";
 import AddWeekToListDialog from "../../components/listr/AddWeekToListDialog";
 import MealDayDialog from "../../components/listr/MealDayDialog";
 import {
@@ -16,46 +16,19 @@ import {
   iconButtonClass,
   primaryButtonClass,
 } from "../../components/ui/kit";
-
-const WEEKDAY_LABELS = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
-
-function toIso(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function fromIso(iso: string): Date {
-  return new Date(iso + "T00:00:00");
-}
-function addDays(iso: string, days: number): string {
-  const d = fromIso(iso);
-  d.setDate(d.getDate() + days);
-  return toIso(d);
-}
-function addMonths(iso: string, months: number): string {
-  const d = fromIso(iso);
-  d.setMonth(d.getMonth() + months);
-  return toIso(d);
-}
-// Monday-based week start, regardless of what JS's Sunday-first getDay() says.
-function startOfWeek(iso: string): string {
-  const day = fromIso(iso).getDay();
-  return addDays(iso, day === 0 ? -6 : 1 - day);
-}
-function startOfMonth(iso: string): string {
-  const d = fromIso(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-function endOfMonth(iso: string): string {
-  return addDays(addMonths(startOfMonth(iso), 1), -1);
-}
-function range(startIso: string, endIso: string): string[] {
-  const days: string[] = [];
-  let cur = startIso;
-  while (cur <= endIso) {
-    days.push(cur);
-    cur = addDays(cur, 1);
-  }
-  return days;
-}
+import { QueryError } from "../../components/ui/QueryError";
+import {
+  WEEKDAY_LABELS,
+  addDays,
+  addMonths,
+  endOfMonth,
+  fromIso,
+  range,
+  startOfMonth,
+  startOfWeek,
+  toIso,
+} from "../../utils/weekCalendar";
+import { dateLocale, t, tp } from "../../i18n";
 
 export default function ListrWeekplanner() {
   const navigate = useNavigate();
@@ -75,6 +48,7 @@ export default function ListrWeekplanner() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["listr-meal-plan"] });
     queryClient.invalidateQueries({ queryKey: ["listr-popular-recipes"] });
+    queryClient.invalidateQueries({ queryKey: ["listr-leftovers"] });
   };
 
   const mealPlanQuery = useQuery({
@@ -97,8 +71,23 @@ export default function ListrWeekplanner() {
     .map((e) => ({ date: e.date, recipeTitle: e.recipe_title as string }));
 
   const saveMutation = useMutation({
-    mutationFn: ({ date, input }: { date: string; input: ListrMealPlanInput }) =>
-      listrApi.setMealPlanDay(date, input),
+    mutationFn: async ({
+      date,
+      input,
+      newLeftover,
+      moveTo,
+    }: {
+      date: string;
+      input: ListrMealPlanInput;
+      newLeftover: ListrLeftoverInput | null;
+      moveTo: string | null;
+    }) => {
+      // Moving goes first: the likeliest failure is the target day already being planned, and
+      // that should leave the day exactly as it was rather than half-saved.
+      if (moveTo) await listrApi.moveMealPlanDay(date, moveTo);
+      await listrApi.setMealPlanDay(moveTo ?? date, input);
+      if (newLeftover) await listrApi.createLeftover(newLeftover);
+    },
     onSuccess: () => {
       invalidate();
       setEditingDate(null);
@@ -115,6 +104,7 @@ export default function ListrWeekplanner() {
     mutationFn: ({ date, entry }: { date: string; entry: ListrMealPlanEntry }) =>
       listrApi.setMealPlanDay(date, {
         recipe_id: entry.recipe_id,
+        leftover_id: entry.leftover_id,
         notes: entry.notes,
         is_cooked: !entry.is_cooked,
       }),
@@ -136,10 +126,10 @@ export default function ListrWeekplanner() {
 
   const label =
     viewMode === "week"
-      ? `${fromIso(weekStart).toLocaleDateString("nl-NL", { day: "numeric", month: "short" })} – ${fromIso(
+      ? `${fromIso(weekStart).toLocaleDateString(dateLocale("nl-NL"), { day: "numeric", month: "short" })} – ${fromIso(
           addDays(weekStart, 6),
-        ).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" })}`
-      : fromIso(monthStart).toLocaleDateString("nl-NL", { month: "long", year: "numeric" });
+        ).toLocaleDateString(dateLocale("nl-NL"), { day: "numeric", month: "short", year: "numeric" })}`
+      : fromIso(monthStart).toLocaleDateString(dateLocale("nl-NL"), { month: "long", year: "numeric" });
 
   return (
     <div className="flex flex-col gap-4">
@@ -149,29 +139,27 @@ export default function ListrWeekplanner() {
             onClick={() => setViewMode("week")}
             aria-pressed={viewMode === "week"}
             className={`rounded-lg px-3 text-sm font-semibold transition-colors ${viewMode === "week" ? "bg-ui-brand-soft text-ui-brand-strong" : "text-ui-muted hover:text-ui-ink"}`}
-          >
-            Week
-          </button>
+          >{t("Week")}</button>
           <button
             onClick={() => setViewMode("month")}
             aria-pressed={viewMode === "month"}
             className={`rounded-lg px-3 text-sm font-semibold transition-colors ${viewMode === "month" ? "bg-ui-brand-soft text-ui-brand-strong" : "text-ui-muted hover:text-ui-ink"}`}
-          >
-            Maand
-          </button>
+          >{t("Maand")}</button>
         </div>
       </ModuleTopRow>
       <PageTitle
-        subtitle={`${plannedMeals.length} ${plannedMeals.length === 1 ? "maaltijd" : "maaltijden"} gepland deze ${viewMode === "week" ? "week" : "maand"}`}
-      >
-        Weekplanner
-      </PageTitle>
+        subtitle={
+          viewMode === "week"
+            ? tp(plannedMeals.length, "{n} maaltijd gepland deze week", "{n} maaltijden gepland deze week")
+            : tp(plannedMeals.length, "{n} maaltijd gepland deze maand", "{n} maaltijden gepland deze maand")
+        }
+      >{t("Weekplanner")}</PageTitle>
 
       <div className="flex items-center justify-between gap-2">
         <button
           onClick={() => setCursor(viewMode === "week" ? addDays(cursor, -7) : addMonths(cursor, -1))}
           className={iconButtonClass}
-          aria-label="Vorige"
+          aria-label={t("Vorige")}
         >
           <IconChevronLeft size={20} />
         </button>
@@ -179,7 +167,7 @@ export default function ListrWeekplanner() {
         <button
           onClick={() => setCursor(viewMode === "week" ? addDays(cursor, 7) : addMonths(cursor, 1))}
           className={iconButtonClass}
-          aria-label="Volgende"
+          aria-label={t("Volgende")}
         >
           <IconChevronRight size={20} />
         </button>
@@ -190,6 +178,15 @@ export default function ListrWeekplanner() {
           for a recipe title, a weekday name, or even a comfortable tap target. Month view's
           leading/trailing days from adjacent months only exist to keep the calendar's column
           alignment, so they're dropped from that stacked list rather than shown as empty rows. */}
+      {mealPlanQuery.isError && (
+        <QueryError
+          className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-3 text-center"
+          message={t("Weekplanning laden mislukt; de dagen hieronder kunnen leeg lijken terwijl er wel iets gepland is.")}
+          onRetry={() => mealPlanQuery.refetch()}
+          retryLabel={t("Opnieuw")}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-7">
         {viewMode === "month" &&
           WEEKDAY_LABELS.map((label) => (
@@ -197,7 +194,8 @@ export default function ListrWeekplanner() {
               key={label}
               className="hidden text-center text-xs font-semibold uppercase tracking-[0.06em] text-ui-muted sm:block"
             >
-              {label}
+              {/* WEEKDAY_LABELS (utils/weekCalendar) are Dutch; their English is in listr's messages. */}
+              {t(label)}
             </div>
           ))}
         {days.map((dateIso) => {
@@ -223,33 +221,33 @@ export default function ListrWeekplanner() {
                     terser version (bare day number in month view, since the header row above
                     already names the weekday there). */}
                 <span className="sm:hidden">
-                  {d.toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" })}
+                  {d.toLocaleDateString(dateLocale("nl-NL"), { weekday: "short", day: "numeric", month: "short" })}
                 </span>
                 <span className="hidden sm:inline">
                   {viewMode === "week"
-                    ? d.toLocaleDateString("nl-NL", { weekday: "short", day: "numeric" })
+                    ? d.toLocaleDateString(dateLocale("nl-NL"), { weekday: "short", day: "numeric" })
                     : d.getDate()}
                 </span>
               </span>
-              {entry?.recipe_title ? (
+              {entry?.recipe_title || entry?.leftover_name ? (
                 <div className="flex min-w-0 flex-1 items-center justify-between gap-1 sm:flex-none sm:items-start">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/listr/recept/${entry.recipe_id}`);
+                      if (entry.recipe_id !== null) navigate(`/listr/recept/${entry.recipe_id}`);
                     }}
                     className="min-w-0 truncate text-left text-[15px] font-semibold text-ui-ink hover:underline sm:text-xs"
-                    title={entry.recipe_title}
+                    title={entry.recipe_title ?? entry.leftover_name ?? undefined}
                   >
-                    {entry.recipe_title}
+                    {entry.recipe_title ?? t("Restje: {name}", { name: entry.leftover_name ?? "" })}
                   </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleCookedMutation.mutate({ date: dateIso, entry });
                     }}
-                    title={entry.is_cooked ? "Gekookt" : "Markeer als gekookt"}
-                    aria-label={entry.is_cooked ? "Gekookt" : "Markeer als gekookt"}
+                    title={entry.is_cooked ? t("Gekookt") : t("Markeer als gekookt")}
+                    aria-label={entry.is_cooked ? t("Gekookt") : t("Markeer als gekookt")}
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border sm:h-6 sm:w-6 ${
                       entry.is_cooked ? "border-ui-brand bg-ui-brand text-white" : "border-ui-line text-ui-faint hover:text-ui-muted"
                     }`}
@@ -263,7 +261,7 @@ export default function ListrWeekplanner() {
                 </span>
               ) : (
                 !isOutsideMonth && (
-                  <span className="flex-1 text-sm text-ui-faint sm:flex-none sm:text-xs">+ plannen</span>
+                  <span className="flex-1 text-sm text-ui-faint sm:flex-none sm:text-xs">{t("+ plannen")}</span>
                 )
               )}
             </div>
@@ -276,19 +274,16 @@ export default function ListrWeekplanner() {
         disabled={plannedMeals.length === 0}
         className={`${primaryButtonClass} sm:self-end`}
       >
-        <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={2} />
-        Boodschappenlijst van deze {viewMode === "week" ? "week" : "maand"}
+        <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={2} />{viewMode === "week" ? t("Boodschappenlijst van deze week") : t("Boodschappenlijst van deze maand")}
       </button>
 
       <div className="rounded-[20px] border border-ui-border bg-ui-surface p-4">
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-ui-brand" strokeWidth={2} />
-          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Populairste recepten</h2>
+          <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Populairste recepten")}</h2>
         </div>
         {!popularQuery.data || popularQuery.data.length === 0 ? (
-          <div className="mt-2 text-sm text-ui-muted">
-            Nog niets gekookt — vink een geplande maaltijd af om deze lijst te vullen.
-          </div>
+          <div className="mt-2 text-sm text-ui-muted">{t("Nog niets gekookt — vink een geplande maaltijd af om deze lijst te vullen.")}</div>
         ) : (
           <ul className="mt-2 flex flex-col text-[15px]">
             {popularQuery.data.map((recipe, i) => (
@@ -301,8 +296,7 @@ export default function ListrWeekplanner() {
                   <span className="truncate">{recipe.title}</span>
                 </button>
                 <span className="shrink-0 tabular-nums text-sm text-ui-muted">
-                  {recipe.times_cooked}× gekookt
-                </span>
+                  {recipe.times_cooked}{t("× gekookt")}</span>
               </li>
             ))}
           </ul>
@@ -314,8 +308,12 @@ export default function ListrWeekplanner() {
           date={editingDate}
           entry={entriesByDate.get(editingDate)}
           isSubmitting={saveMutation.isPending || clearMutation.isPending}
-          onCancel={() => setEditingDate(null)}
-          onSave={(input) => saveMutation.mutate({ date: editingDate, input })}
+          error={saveMutation.isError ? (saveMutation.error.message.startsWith("409") ? t("Op die dag staat al iets gepland.") : t("Opslaan mislukt.")) : null}
+          onCancel={() => {
+            saveMutation.reset();
+            setEditingDate(null);
+          }}
+          onSave={(input, newLeftover, moveTo) => saveMutation.mutate({ date: editingDate, input, newLeftover, moveTo })}
           onClear={() => clearMutation.mutate(editingDate)}
         />
       )}
@@ -323,7 +321,7 @@ export default function ListrWeekplanner() {
       {addingToList && (
         <AddWeekToListDialog
           meals={plannedMeals}
-          defaultListName={`Boodschappen ${label}`}
+          defaultListName={t("Boodschappen {label}", { label })}
           isSubmitting={addToListMutation.isPending}
           onCancel={() => setAddingToList(false)}
           onSubmit={(input) => addToListMutation.mutate(input)}

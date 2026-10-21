@@ -1,5 +1,6 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 
@@ -75,6 +76,22 @@ def bank(amount: str, day: date, *, out: bool = True, name: str = "", iban: str 
         method="Incasso",
         raw_text=raw or description,
     )
+
+
+@pytest.fixture(autouse=True)
+def sync_stamps_its_own_day(monkeypatch):
+    """A real run happens on its own `as_of` day, so it stamps `last_synced_at` with that day. Left
+    to the wall clock, the next run's start (last sync - the refetch overlap) drifts past these
+    tests' fixed October dates as the real date moves on, and the run is skipped."""
+    real_sync = bank_sync_service.sync
+
+    def sync(db, *args, as_of=None, **kwargs):
+        if as_of is None:
+            return real_sync(db, *args, **kwargs)
+        with patch.object(bank_sync_service, "_utcnow", return_value=datetime.combine(as_of, time(12))):
+            return real_sync(db, *args, as_of=as_of, **kwargs)
+
+    monkeypatch.setattr(bank_sync_service, "sync", sync)
 
 
 @pytest.fixture()
@@ -180,7 +197,7 @@ def test_a_start_date_still_to_come_fetches_nothing(db_session, provider, connec
 
 
 def test_an_expired_consent_is_reported_not_fetched(db_session, provider, connected, ing):
-    bank_sync_repo.update_connection(db_session, ing, valid_until=bank_sync_service._utcnow() - timedelta(minutes=1))
+    bank_sync_repo.update_connection(db_session, ing, valid_until=datetime(2026, 10, 6, 11, 59))  # a minute before the run's noon
 
     result = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 6), scheduled=True)
 
@@ -382,6 +399,23 @@ def test_a_transfer_rule_is_fulfilled_by_the_transfer_the_bank_recognised(db_ses
     assert rule.next_due_date == date(2026, 11, 26)
 
 
+def test_a_transfer_the_bank_books_for_a_rule_depreciates_what_the_rule_says(db_session, provider, connected):
+    from app.services import gripr_depreciation_service
+
+    ing, spaar = connected["ing"].id, connected["spaar_kid"].id
+    car = GriprAccount(name="Auto", type=GriprAccountType.ASSET, balance_mode=GriprBalanceMode.MANUAL, manual_balance=Decimal("5000"))
+    db_session.add(car)
+    db_session.flush()
+    bank_sync_repo.create_rule(db_session, text_contains="B 145-58977", gripr_account_id=spaar)
+    rule = _rule(db_session, "Afschrijving", T.TRANSFER, "10.00", ing, date(2026, 10, 26), counter_account_id=spaar)
+    gripr_depreciation_service.set_for_rule(db_session, rule, [(car.id, Decimal("4.00"))])
+    provider.transactions["uid-ing"] = [bank("10.00", date(2026, 10, 26), name="Sam", iban=KID)]
+
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 27), scheduled=True)
+
+    assert car.manual_balance == Decimal("4996.00")
+
+
 # -- recurring rules on bank-fed accounts ----------------------------------------------------
 
 
@@ -566,17 +600,139 @@ def test_a_payment_you_didnt_enter_is_booked_for_you_to_look_up(db_session, prov
     assert row.source_ref.startswith("tr:")
 
 
-def test_trade_republic_waits_two_days_so_your_own_entry_comes_first(db_session, provider, trade_republic, connected):
+def test_trade_republic_is_booked_on_the_next_run_without_waiting(db_session, provider, trade_republic, connected):
     provider.transactions["uid-tr"] = [tr_entry("26.42", date(2026, 10, 13))]
 
-    first = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 14), scheduled=True)
-    assert first == bank_sync_service.SyncResult()  # not yet, and not recorded either
+    result = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 13), scheduled=True)
 
-    gripr_transaction_repo.create_transaction(
-        db_session, date=date(2026, 10, 12), type=T.EXPENSE, amount=Decimal("26.42"), account_id=connected["tr"].id
+    assert result.booked == 1
+    (row,) = all_rows(db_session)
+    assert (row.amount, row.category_id) == (Decimal("26.42"), None)
+
+
+def _typed_in(db_session, accounts, amount="26.42", day=date(2026, 10, 12), **fields) -> GriprTransaction:
+    return bank_sync_service.create_or_claim(
+        db_session, date=day, type=T.EXPENSE, amount=Decimal(amount), account_id=accounts["tr"].id, **fields
     )
-    second = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 15), scheduled=True)
-    assert (second.matched, second.booked) == (1, 0)
+
+
+def test_a_payment_entered_after_trade_republic_booked_it_takes_over_that_row(db_session, provider, trade_republic, connected):
+    provider.transactions["uid-tr"] = [tr_entry("26.42", date(2026, 10, 13))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 13), scheduled=True)
+    (synced,) = all_rows(db_session)
+
+    entered = _typed_in(db_session, connected, notes="Jumbo", category_id=None)
+
+    assert entered.id == synced.id
+    assert len(all_rows(db_session)) == 1
+    assert (entered.notes, entered.date, entered.source_ref[:3]) == ("Jumbo", date(2026, 10, 12), "tr:")
+    # And the next run still knows that entry is handled.
+    again = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 14), scheduled=True)
+    assert (again.booked, again.matched) == (0, 0)
+
+
+def test_a_claimed_row_is_not_claimed_twice(db_session, provider, trade_republic, connected):
+    provider.transactions["uid-tr"] = [tr_entry("3.95", date(2026, 10, 13))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 13), scheduled=True)
+
+    first = _typed_in(db_session, connected, "3.95")
+    second = _typed_in(db_session, connected, "3.95")  # a second coffee, same amount
+
+    assert first.id != second.id
+    assert len(all_rows(db_session)) == 2
+
+
+def test_two_identical_payments_are_claimed_by_two_entries(db_session, provider, trade_republic, connected):
+    provider.transactions["uid-tr"] = [tr_entry("3.95", date(2026, 10, 13)), tr_entry("3.95", date(2026, 10, 13))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 13), scheduled=True)
+
+    _typed_in(db_session, connected, "3.95")
+    _typed_in(db_session, connected, "3.95")
+    third = _typed_in(db_session, connected, "3.95")  # a third one is new
+
+    assert len(all_rows(db_session)) == 3
+    assert third.source_ref is None
+
+
+def test_a_row_you_already_filed_is_not_claimed(db_session, provider, trade_republic, connected):
+    groceries = GriprCategory(name="Boodschappen", kind=GriprCategoryKind.EXPENSE)
+    db_session.add(groceries)
+    db_session.flush()
+    provider.transactions["uid-tr"] = [tr_entry("26.42", date(2026, 10, 13))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 13), scheduled=True)
+    (synced,) = all_rows(db_session)
+    synced.category_id = groceries.id
+    db_session.flush()
+
+    entered = _typed_in(db_session, connected)
+
+    assert entered.id != synced.id
+    assert len(all_rows(db_session)) == 2
+
+
+def test_a_payment_a_week_away_or_on_another_account_is_a_new_entry(db_session, provider, trade_republic, connected):
+    provider.transactions["uid-tr"] = [tr_entry("26.42", date(2026, 10, 20))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 20), scheduled=True)
+
+    far = _typed_in(db_session, connected, day=date(2026, 10, 12))
+    elsewhere = bank_sync_service.create_or_claim(
+        db_session, date=date(2026, 10, 19), type=T.EXPENSE, amount=Decimal("26.42"), account_id=connected["ing"].id
+    )
+
+    assert {far.source_ref, elsewhere.source_ref} == {None}
+    assert len(all_rows(db_session)) == 3
+
+
+def test_income_is_claimed_the_same_way(db_session, provider, trade_republic, connected):
+    provider.transactions["uid-tr"] = [tr_entry("7.12", date(2026, 11, 1), out=False)]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 11, 1), scheduled=True)
+    (synced,) = all_rows(db_session)
+
+    entered = bank_sync_service.create_or_claim(
+        db_session, date=date(2026, 11, 1), type=T.INCOME, amount=Decimal("7.12"), account_id=connected["tr"].id, notes="Saveback"
+    )
+
+    assert (entered.id, entered.notes) == (synced.id, "Saveback")
+    assert len(all_rows(db_session)) == 1
+
+
+def test_a_payment_from_a_pot_claims_the_row_booked_on_the_account(db_session, provider, trade_republic, connected):
+    pot = GriprAccount(
+        name="Onderhoud Auto", type=GriprAccountType.SAVINGS, balance_mode=GriprBalanceMode.TRANSACTIONAL,
+        held_in_account_id=connected["tr"].id,
+    )
+    db_session.add(pot)
+    db_session.flush()
+    provider.transactions["uid-tr"] = [tr_entry("60.00", date(2026, 10, 21))]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 21), scheduled=True)
+    (synced,) = all_rows(db_session)
+
+    entered = bank_sync_service.create_or_claim(
+        db_session, date=date(2026, 10, 20), type=T.EXPENSE, amount=Decimal("60.00"), account_id=pot.id, notes="APK"
+    )
+
+    assert (entered.id, entered.account_id) == (synced.id, pot.id)
+    assert len(all_rows(db_session)) == 1
+
+
+def test_with_no_amount_only_bank_a_typed_entry_is_just_created(db_session, provider, connected):
+    row = _typed_in(db_session, connected)
+
+    assert row.source_ref is None
+    assert len(all_rows(db_session)) == 1
+
+
+def test_a_trade_republic_half_booked_before_ings_is_still_one_transfer(db_session, provider, trade_republic, connected):
+    # Trade Republic dates its debit the 12th, ING its credit the 13th: ING's entry is handled
+    # first (entries that can't say who's on the other side go last), so it's booked once.
+    provider.transactions["uid-ing"] = [bank("750.00", date(2026, 10, 13), out=False, name="J Jansen", iban=TR_CASH)]
+    provider.transactions["uid-tr"] = [tr_entry("750.00", date(2026, 10, 12))]
+
+    result = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 15), scheduled=True)
+
+    assert (result.booked, result.matched) == (1, 1)
+    (row,) = all_rows(db_session)
+    assert row.type == T.TRANSFER
 
 
 def test_an_amount_rule_books_the_monthly_savings_plan_as_a_transfer(db_session, provider, trade_republic, connected):
@@ -959,3 +1115,144 @@ def test_a_refused_read_says_to_wait_for_tomorrow(db_session, provider, trade_re
     assert result.problems == {"Trade Republic": "daily read limit reached"}
     assert "tomorrow morning" in trade_republic.last_error
     assert trade_republic.session_id is not None  # still connected: nothing to reconnect
+
+
+def test_a_later_card_payment_of_the_same_amount_doesnt_claim_an_older_hand_entered_row(db_session, provider, t212, trading212, connected):
+    # The AVV Swift payment of the 1st was entered by hand (before the sync started); the Jumbo
+    # payment of the 5th costs the same and must be booked, not checked off against it.
+    hand = gripr_transaction_repo.create_transaction(
+        db_session, date=date(2026, 10, 1), type=T.EXPENSE, amount=Decimal("16.75"), account_id=connected["t212"].id
+    )
+    t212.entries = [t212_entry("-16.75", date(2026, 10, 5), merchant="Jumbo", category="RETAIL_STORES")]
+
+    result = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 6), t212=t212, scheduled=True)
+
+    assert (result.matched, result.booked) == (0, 1)
+    rows_ = all_rows(db_session)
+    assert [(r.date, r.amount) for r in rows_] == [(date(2026, 10, 1), Decimal("16.75")), (date(2026, 10, 5), Decimal("16.75"))]
+    assert hand.source_ref is None
+
+
+def test_a_card_payment_still_finds_the_row_entered_for_it_a_day_off(db_session, provider, t212, trading212, connected):
+    gripr_transaction_repo.create_transaction(
+        db_session, date=date(2026, 10, 4), type=T.EXPENSE, amount=Decimal("16.75"), account_id=connected["t212"].id
+    )
+    t212.entries = [t212_entry("-16.75", date(2026, 10, 5), merchant="Jumbo", category="RETAIL_STORES")]
+
+    result = bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 6), t212=t212, scheduled=True)
+
+    assert (result.matched, result.booked) == (1, 0)
+
+
+def test_an_ing_payment_takes_the_category_last_given_to_the_same_counterparty(db_session, provider, connected):
+    groceries = GriprCategory(name="Boodschappen", kind=GriprCategoryKind.EXPENSE)
+    db_session.add(groceries)
+    db_session.flush()
+    bakery = GriprCategory(name="Bakker", kind=GriprCategoryKind.EXPENSE, parent_id=groceries.id)
+    db_session.add(bakery)
+    db_session.flush()
+    provider.transactions["uid-ing"] = [bank("4.50", date(2026, 10, 4), name="Bakkerij De Korenaar")]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 5), scheduled=True)
+    (first,) = all_rows(db_session)
+    first.category_id = bakery.id  # the reader files it under a subcategory
+    db_session.flush()
+    provider.transactions["uid-ing"] += [
+        bank("5.20", date(2026, 10, 6), name="BAKKERIJ DE KORENAAR"),
+        bank("9.00", date(2026, 10, 6), name="Someone New"),
+    ]
+
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 7), scheduled=True)
+
+    _, again, stranger = all_rows(db_session)
+    assert again.category_id == bakery.id
+    assert stranger.category_id is None
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Albert Heijn 1234 Amsterdam", "ALBERT HEIJN 5678 UTRECHT"),
+        ("PICNIC BY BUCKAROO", "Picnic"),
+        ("clubpellikaan.nl via Rabo Smart Pay", "Clubpellikaan.nl"),
+        ("SumUp *Koffiebar Utrecht", "Koffiebar Amersfoort"),
+        ("Jumbo Utrecht Overvecht", "JUMBO 4411 AMSTERDAM"),
+    ],
+)
+def test_the_same_shop_spelled_differently_gets_the_same_key(first, second):
+    assert bank_sync_service.normalize_merchant(first) == bank_sync_service.normalize_merchant(second)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Nederlandse Spoorwegen", "Nederlandse Gereformeerde Kerk"),
+        ("AH to go Utrecht CS", "AH Campus Diemen"),
+        ("Restaurant De Kas", "Restaurant Floor17"),
+    ],
+)
+def test_different_shops_keep_different_keys(first, second):
+    assert bank_sync_service.normalize_merchant(first) != bank_sync_service.normalize_merchant(second)
+
+
+def test_a_payment_spelled_differently_still_takes_the_learned_category(db_session, provider, connected):
+    groceries = GriprCategory(name="Boodschappen", kind=GriprCategoryKind.EXPENSE)
+    db_session.add(groceries)
+    db_session.flush()
+    provider.transactions["uid-ing"] = [bank("31.20", date(2026, 10, 4), name="Albert Heijn 1234 Amsterdam")]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 5), scheduled=True)
+    (first,) = all_rows(db_session)
+    first.category_id = groceries.id
+    db_session.flush()
+    provider.transactions["uid-ing"] += [bank("12.10", date(2026, 10, 6), name="ALBERT HEIJN 5678 UTRECHT")]
+
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 7), scheduled=True)
+
+    assert all_rows(db_session)[-1].category_id == groceries.id
+
+
+def test_categorising_one_offers_the_other_uncategorised_ones_from_that_counterparty(db_session, provider, connected):
+    groceries = GriprCategory(name="Boodschappen", kind=GriprCategoryKind.EXPENSE)
+    other = GriprCategory(name="Overig", kind=GriprCategoryKind.EXPENSE)
+    db_session.add_all([groceries, other])
+    db_session.flush()
+    provider.transactions["uid-ing"] = [
+        bank("31.20", date(2026, 10, 4), name="Albert Heijn 1234 Amsterdam"),
+        bank("12.10", date(2026, 10, 4), name="ALBERT HEIJN 5678 UTRECHT"),
+        bank("8.00", date(2026, 10, 5), name="Albert Heijn 99 Utrecht"),
+        bank("5.00", date(2026, 10, 5), name="Spotify"),
+    ]
+    bank_sync_service.sync(db_session, provider, as_of=date(2026, 10, 6), scheduled=True)
+    first, second, third, spotify = all_rows(db_session)
+    third.category_id = other.id  # filed on purpose: never touched
+    first.category_id = groceries.id
+    db_session.flush()
+
+    counterparty, similar = bank_sync_service.similar_uncategorised(db_session, first)
+    updated = bank_sync_service.apply_category_to_similar(db_session, first)
+
+    assert counterparty == "Albert Heijn 1234 Amsterdam"
+    assert [t.id for t in similar] == [second.id]
+    assert updated == 1
+    assert (second.category_id, third.category_id, spotify.category_id) == (groceries.id, other.id, None)
+
+
+def test_a_transaction_the_bank_never_saw_has_nothing_similar(db_session, connected):
+    txn = gripr_transaction_repo.create_transaction(
+        db_session, date=date(2026, 10, 4), type=T.EXPENSE, amount=Decimal("5"), account_id=connected["ing"].id
+    )
+
+    assert bank_sync_service.similar_uncategorised(db_session, txn) == (None, [])
+
+
+def test_rekeying_moves_old_counterparty_records_onto_the_current_key(db_session, connected):
+    from scripts.rekey_merchants import rekey
+
+    booked = gripr_transaction_repo.create_transaction(
+        db_session, date=date(2026, 10, 4), type=T.EXPENSE, amount=Decimal("5"), account_id=connected["ing"].id,
+        notes="ALBERT HEIJN 5678 UTRECHT — Betaalpas",
+    )
+    bank_sync_repo.record(db_session, "ing:old1", ING, date(2026, 10, 4), "booked", booked.id, merchant="albertheijn5678utrecht")
+
+    assert rekey(db_session) == 1
+    assert bank_sync_repo.merchant_of(db_session, booked.id) == "albert"
+    assert rekey(db_session) == 0  # already on the current key

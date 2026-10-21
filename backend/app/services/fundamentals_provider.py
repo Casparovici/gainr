@@ -17,6 +17,10 @@ from urllib.parse import urlparse
 import httpx
 
 from app.services import news_sources
+from app.services.fundamentals_metrics import (
+    CAPEX, DEPRECIATION, FREE_CASH_FLOW, INVENTORY, NET_INCOME, NET_INTEREST_INCOME, OPERATING_CASH_FLOW,
+    OPERATING_EXPENSE, OPERATING_INCOME, REVENUE, FundSnapshot, MetricInputs,
+)
 
 # Yahoo returns the ~10-20 most recent stories regardless of age; the card only shows the last
 # week, but caching a few more means the window can move without re-fetching.
@@ -170,6 +174,13 @@ class FundamentalsProvider(ABC):
     @abstractmethod
     def get_company_events(self, symbol: str) -> CompanyEvents:
         """Earnings and dividend dates for `symbol`. Empty for funds, crypto and commodities."""
+
+    def get_metric_inputs(self, symbol: str, kind: str, price_symbols: tuple[str, ...] = ()) -> MetricInputs:
+        """The raw figures a position's metric checklist is computed from (see
+        fundamentals_metrics). `kind` says what to fetch: statements for an "equity", the fund
+        breakdown for an "etf", price history for "crypto" and "gold". Empty when the provider
+        has nothing -- every metric then simply reads as unavailable."""
+        return MetricInputs()
 
     def get_source_news(self, source: str) -> list[NewsItem]:
         """Recent stories for an extra news source ("sector:<key>", "industry:<key>",
@@ -526,6 +537,95 @@ class YFinanceFundamentalsProvider(FundamentalsProvider):
 
     # Enough past quarters for a two-year beat/miss read, plus the upcoming row or two.
     EARNINGS_ROWS = 12
+
+    ANNUAL_ROWS = {
+        REVENUE: ("income", REVENUE_ROWS),
+        OPERATING_INCOME: ("income", ("Operating Income", "Total Operating Income As Reported")),
+        NET_INCOME: ("income", NET_INCOME_ROWS),
+        OPERATING_EXPENSE: ("income", OPERATING_EXPENSE_ROWS),
+        NET_INTEREST_INCOME: ("income", ("Net Interest Income",)),
+        FREE_CASH_FLOW: ("cashflow", FCF_ROWS),
+        OPERATING_CASH_FLOW: ("cashflow", OPERATING_CASH_ROWS),
+        CAPEX: ("cashflow", CAPEX_ROWS),
+        DEPRECIATION: ("cashflow", ("Depreciation And Amortization", "Depreciation Amortization Depletion")),
+        INVENTORY: ("balance", ("Inventory",)),
+    }
+
+    def get_metric_inputs(self, symbol: str, kind: str, price_symbols: tuple[str, ...] = ()) -> MetricInputs:
+        import yfinance as yf
+
+        ticker = yf.Ticker(symbol)
+        try:
+            info = ticker.info or {}
+        except Exception:
+            info = {}
+        inputs = MetricInputs(info=info, currency=info.get("financialCurrency") or info.get("currency"))
+        try:
+            if kind == "equity":
+                frames = {"income": ticker.income_stmt, "cashflow": ticker.cashflow, "balance": ticker.balance_sheet}
+                inputs.annual = {
+                    row: series
+                    for row, (frame, names) in self.ANNUAL_ROWS.items()
+                    if (series := self._series(frames[frame], names))
+                }
+            elif kind == "etf":
+                inputs.fund = self._fund_snapshot(ticker)
+        except Exception:
+            pass  # a partial checklist beats none
+        if kind in ("crypto", "gold") or price_symbols:
+            for s in (symbol, *price_symbols):
+                closes = self._closes(yf, s)
+                if closes:
+                    inputs.prices[s] = closes
+        return inputs
+
+    @staticmethod
+    def _closes(yf, symbol: str) -> dict[date, Decimal]:
+        try:
+            history = yf.Ticker(symbol).history(period="1y")["Close"]
+        except Exception:
+            return {}
+        closes = {}
+        for day, close in history.items():
+            value = _decimal(close)
+            if value is not None:
+                closes[day.date() if hasattr(day, "date") else day] = value
+        return closes
+
+    @staticmethod
+    def _fund_snapshot(ticker) -> FundSnapshot | None:
+        try:
+            data = ticker.funds_data
+        except Exception:
+            return None
+        snapshot = FundSnapshot()
+        try:
+            holdings = data.top_holdings
+            if holdings is not None and not holdings.empty:
+                snapshot.top_holdings = [
+                    (str(symbol), weight * 100)
+                    for symbol, fraction in holdings["Holding Percent"].items()
+                    if (weight := _decimal(fraction)) is not None
+                ]
+        except Exception:
+            pass
+        try:
+            snapshot.sectors = {
+                name: weight * 100 for name, fraction in (data.sector_weightings or {}).items() if (weight := _decimal(fraction)) is not None
+            }
+        except Exception:
+            pass
+        try:
+            earnings_yield = _decimal(data.equity_holdings.loc["Price/Earnings"].iloc[0])
+            snapshot.holdings_earnings_yield = earnings_yield if earnings_yield and earnings_yield > 0 else None
+        except Exception:
+            pass
+        try:
+            ratio = _decimal(data.fund_operations.loc["Annual Report Expense Ratio"].iloc[0])
+            snapshot.expense_ratio_pct = ratio * 100 if ratio is not None else None
+        except Exception:
+            pass
+        return snapshot
 
     def get_company_events(self, symbol: str) -> CompanyEvents:
         import yfinance as yf

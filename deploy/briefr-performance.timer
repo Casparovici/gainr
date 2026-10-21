@@ -1,0 +1,12 @@
+[Unit]
+Description=Write briefr's performance reports every morning, after the price refresh
+
+[Timer]
+# gainr-refresh.timer runs at 04:30 UTC (06:30 in summer, 05:30 in winter here), so yesterday's
+# closes are in by then.
+OnCalendar=*-*-* 07:00:00 Europe/Amsterdam
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

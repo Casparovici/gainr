@@ -34,6 +34,12 @@ CASH_ONLY_TYPES = {
     TransactionType.TRANSFER,
 }
 
+# Everything that moves cash except buying and selling positions: the ledger rows behind the Cash
+# row's balance. A Dividend belongs to an asset but pays out as cash; Staking is a non-cash
+# quantity increase, so it isn't here. A Transfer nets to zero on the total but moves money
+# between brokers' buckets.
+CASH_MOVEMENT_TYPES = CASH_ONLY_TYPES | {TransactionType.DIVIDEND}
+
 NUMERIC = Numeric(20, 8)
 
 

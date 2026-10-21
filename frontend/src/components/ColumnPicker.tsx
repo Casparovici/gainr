@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n";
 
 export interface ColumnOption<K extends string> {
   key: K;
@@ -46,8 +47,8 @@ export default function ColumnPicker<K extends string>({
         aria-expanded={open}
         aria-haspopup="true"
         className="rounded-md border border-slate-200 px-2 py-1 text-xs font-normal text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-      >
-        Columns{hiddenCount > 0 && ` · ${hiddenCount} hidden`}
+      >{t("Columns")}{hiddenCount > 0 && ` · ${t("{n} hidden", { n: hiddenCount })}`}
+
       </button>
 
       {open && (
@@ -68,8 +69,8 @@ export default function ColumnPicker<K extends string>({
                   onChange={() => onToggle(column.key)}
                   className="h-3.5 w-3.5 rounded border-slate-300 accent-slate-900"
                 />
-                <span className="flex-1">{column.label}</span>
-                {column.fixed && <span className="text-[10px] uppercase tracking-wide">always</span>}
+                <span className="flex-1">{t(column.label)}</span>
+                {column.fixed && <span className="text-[10px] uppercase tracking-wide">{t("always")}</span>}
               </label>
             );
           })}
@@ -79,9 +80,7 @@ export default function ColumnPicker<K extends string>({
             onClick={onShowAll}
             disabled={hiddenCount === 0}
             className="mt-1 w-full border-t border-slate-100 px-2 pb-1 pt-2 text-left text-xs text-slate-500 transition-colors hover:text-slate-700 disabled:text-slate-300"
-          >
-            Show all columns
-          </button>
+          >{t("Show all columns")}</button>
         </div>
       )}
     </div>

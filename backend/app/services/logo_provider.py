@@ -272,7 +272,7 @@ def _needs_dark_backdrop(data: bytes) -> bool:
     try:
         with Image.open(io.BytesIO(data)) as image:
             image = image.convert("RGBA")
-            pixels = list(image.getdata())
+            pixels = list(image.get_flattened_data())
     except Exception:
         return False
 

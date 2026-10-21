@@ -124,7 +124,7 @@ def test_plants_list_sorts_most_overdue_first(client):
     area_id = make_area(client)
     soon = make_plant(client, area_id, name="Soon")
     later = make_plant(client, area_id, name="Later")
-    unscheduled = make_plant(client, area_id, name="Unscheduled")
+    make_plant(client, area_id, name="Unscheduled")
 
     client.post(f"/api/gardnr/plants/{later}/schedules", json={"action_type": "prune", "interval_value": 1, "frequency": "yearly"})
     client.post(f"/api/gardnr/plants/{soon}/schedules", json={"action_type": "water", "interval_value": 1, "frequency": "daily"})
@@ -336,3 +336,17 @@ def test_uploading_something_unreadable_as_a_photo_400s(client):
 
     assert resp.status_code == 400
 
+
+
+def test_a_photo_over_the_size_cap_is_refused(client, monkeypatch):
+    from app.routers import gardnr
+
+    monkeypatch.setattr(gardnr, "MAX_LOG_PHOTO_UPLOAD_BYTES", 10)
+    area_id = make_area(client)
+    plant_id = make_plant(client, area_id)
+    log_id = client.post(f"/api/gardnr/plants/{plant_id}/logs", json={"action_type": "harvest", "performed_on": "2026-01-01"}).json()["id"]
+
+    resp = client.put(f"/api/gardnr/logs/{log_id}/photo", files={"photo": ("big.png", _tiny_png_bytes(), "image/png")})
+
+    assert resp.status_code == 413
+    assert client.get(f"/api/gardnr/logs/{log_id}/photo").status_code == 404

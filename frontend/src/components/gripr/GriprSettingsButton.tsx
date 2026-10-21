@@ -3,15 +3,16 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import GriprSettingsDialog from "./GriprSettingsDialog";
+import { t } from "../../i18n";
 
-/** The gear that opens gripr's settings (period, banks) from the Accounts page. A bank that needs
+/** The gear that opens gripr's settings (period, banks) from the top row of every gripr page. A bank that needs
  * attention shows up in the notifications bell (GriprNotifications), not on the gear. A bank's
  * redirect back after a consent (?bank=...) opens the settings straight away, where the outcome is
  * shown. */
 export default function GriprSettingsButton({ onPeriodSaved }: { onPeriodSaved?: (startDay: number) => void }) {
   const [searchParams] = useSearchParams();
   const [open, setOpen] = useState(() => searchParams.has("bank"));
-  const label = "Settings";
+  const label = t("Settings");
 
   return (
     <>

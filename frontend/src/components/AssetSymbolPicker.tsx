@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { SymbolMatch } from "../api/types";
+import { t } from "../i18n";
 
 const DEBOUNCE_MS = 400;
 
@@ -46,23 +47,20 @@ export default function AssetSymbolPicker({
 
   if (query.length < 2) return null;
   if (lookup.isError) {
-    return <p className="text-xs text-amber-700">Couldn't reach Yahoo to check this ticker — it'll be used as typed.</p>;
+    return <p className="text-xs text-amber-700">{t("Couldn't reach Yahoo to check this ticker — it'll be used as typed.")}</p>;
   }
   if (!matches) {
-    return <p className="text-xs text-slate-500">Looking up “{query}” on Yahoo…</p>;
+    return <p className="text-xs text-slate-500">{t("Looking up “{query}” on Yahoo…", { query: query })}</p>;
   }
   if (matches.length === 0) {
     return (
-      <p className="text-xs text-amber-700">
-        Yahoo doesn't know “{query}”, so gainr won't find a price for it. Try the exchange's ticker with a suffix (like
-        IQQW.DE), the fund's ISIN, or its name.
-      </p>
+      <p className="text-xs text-amber-700">{t("Yahoo doesn't know “{query}”, so gainr won't find a price for it. Try the exchange's ticker with a suffix (like IQQW.DE), the fund's ISIN, or its name.", { query: query })}</p>
     );
   }
   return (
     // min-w-0: a fieldset is as wide as its content by default, which would widen the form column.
     <fieldset className="flex min-w-0 flex-col gap-1">
-      <legend className="mb-1 text-xs font-medium text-slate-600">Price from</legend>
+      <legend className="mb-1 text-xs font-medium text-slate-600">{t("Price from")}</legend>
       <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
         {matches.map((m) => (
           <label

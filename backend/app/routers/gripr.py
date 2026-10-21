@@ -6,23 +6,24 @@ from datetime import date as date_
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.gripr_account import GriprAccountType
-from app.models.gripr_category import GriprCategoryKind
 from app.models.gripr_transaction import GriprTransactionType
 from app.repositories import (
     bank_sync_repo,
     gripr_account_repo,
+    gripr_depreciation_repo,
     gripr_category_repo,
     gripr_portfolio_link_repo,
     gripr_recurring_repo,
     gripr_settings_repo,
+    gripr_transaction_attachment_repo,
     gripr_transaction_repo,
 )
+from app.routers.errors import domain_errors
 from app.schemas.gripr import (
     GriprBankAccountMappingUpdate,
     GriprBankAccountOut,
@@ -36,21 +37,32 @@ from app.schemas.gripr import (
     GriprAccountCreate,
     GriprAccountOut,
     GriprAccountReorder,
+    GriprAppliedOut,
+    GriprBulkOut,
     GriprAccountUpdate,
+    GriprBalanceForecastOut,
+    GriprBudgetAttentionOut,
     GriprBankLogoOut,
     GriprBudgetLineOut,
     GriprBudgetSet,
     GriprBudgetSuggestionOut,
+    GriprCategoryAmountOut,
+    GriprCategoryComparisonOut,
     GriprCategoryCreate,
     GriprCategoryOut,
     GriprCategoryReorder,
     GriprCategoryTrendPointOut,
     GriprCategoryUpdate,
     GriprOverviewOut,
+    GriprSavingsHealthOut,
+    GriprSimilarOut,
+    GriprTransactionBulk,
     GriprPortfolioLinkOut,
     GriprPortfolioLinkUpdate,
     GriprRecurringCreate,
     GriprPlannedOccurrenceOut,
+    GriprDepreciationOut,
+    GriprDepreciationOverviewOut,
     GriprRecurringOut,
     GriprNotificationOut,
     GriprReceivableOut,
@@ -61,8 +73,10 @@ from app.schemas.gripr import (
     GriprSavingsGoalLineOut,
     GriprSavingsGoalSet,
     GriprSavingsGoalSuggestionOut,
+    GriprSavingsRoomOut,
     GriprSettingsOut,
     GriprSettingsUpdate,
+    GriprTransactionAttachmentOut,
     GriprTransactionCreate,
     GriprTransactionOut,
     GriprTransactionPage,
@@ -76,9 +90,11 @@ from app.services import (
     gripr_overview_service,
     gripr_portfolio_link_service,
     gripr_notification_service,
+    gripr_depreciation_service,
     gripr_receivable_service,
     gripr_recurring_service,
     gripr_transaction_service,
+    transaction_attachment_service,
 )
 from app.services.enablebanking_provider import EnableBankingError
 from app.services.gripr_bank_logo_service import GRIPR_BANKS, gripr_bank_logo_service
@@ -354,17 +370,8 @@ def update_account(account_id: int, payload: GriprAccountUpdate, db: Session = D
     account = gripr_account_repo.get_account(db, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
-    fields = payload.model_dump(exclude_unset=True)
-    if fields.get("bank_logo_key") is not None and fields["bank_logo_key"] not in GRIPR_BANKS:
-        raise HTTPException(status_code=400, detail="Unknown bank_logo_key")
-    if fields.get("held_in_account_id") is not None:
-        parent = gripr_account_repo.get_account(db, fields["held_in_account_id"])
-        if parent is None:
-            raise HTTPException(status_code=404, detail="Account not found")
-        # One level only: a pot sits in a real account, and an account holding pots isn't one.
-        if parent.id == account.id or parent.held_in_account_id is not None or gripr_account_repo.has_pots(db, account.id):
-            raise HTTPException(status_code=400, detail="A pot sits inside a real account, one level deep")
-    gripr_account_repo.update_account(db, account, **fields)
+    with domain_errors():
+        gripr_account_service.update_account(db, account, payload.model_dump(exclude_unset=True))
     db.commit()
     return _to_account_out(account, gripr_account_service.compute_balance(db, account))
 
@@ -419,20 +426,8 @@ def update_category(category_id: int, payload: GriprCategoryUpdate, db: Session 
     category = gripr_category_repo.get_category(db, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
-    fields = payload.model_dump(exclude_unset=True)
-    is_archived = fields.pop("is_archived", None)
-
-    if "linked_loan_account_id" in fields and fields["linked_loan_account_id"] is not None:
-        if category.kind != GriprCategoryKind.EXPENSE:
-            raise HTTPException(status_code=400, detail="Only an expense category can link to a loan account")
-        linked_account = gripr_account_repo.get_account(db, fields["linked_loan_account_id"])
-        if linked_account is None or linked_account.type != GriprAccountType.LOAN:
-            raise HTTPException(status_code=400, detail="linked_loan_account_id must reference a loan account")
-
-    if fields:
-        gripr_category_repo.update_category(db, category, **fields)
-    if is_archived is not None:
-        gripr_category_service.set_archived(db, category, is_archived)
+    with domain_errors():
+        gripr_category_service.update_category(db, category, payload.model_dump(exclude_unset=True))
     db.commit()
     return category
 
@@ -451,7 +446,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
 GRIPR_CSV_COLUMNS = ["date", "type", "account", "counter_account", "category", "amount", "notes"]
 
 
-def _to_txn_out(txn, refunded_amount: Decimal = Decimal(0)) -> GriprTransactionOut:
+def _to_txn_out(txn, refunded_amount: Decimal = Decimal(0), attachment_count: int = 0) -> GriprTransactionOut:
     original = txn.refund_of
     return GriprTransactionOut(
         id=txn.id,
@@ -466,6 +461,7 @@ def _to_txn_out(txn, refunded_amount: Decimal = Decimal(0)) -> GriprTransactionO
         expected_back=txn.expected_back,
         expected_from=txn.expected_from,
         outstanding=gripr_receivable_service.outstanding_for(txn, refunded_amount),
+        attachment_count=attachment_count,
         account_name=txn.account.name if txn.account else None,
         counter_account_name=txn.counter_account.name if txn.counter_account else None,
         category_name=txn.category.name if txn.category else None,
@@ -480,7 +476,7 @@ def _to_txn_out(txn, refunded_amount: Decimal = Decimal(0)) -> GriprTransactionO
 
 def _single_txn_out(db: Session, txn) -> GriprTransactionOut:
     refunded = gripr_transaction_repo.refunded_totals(db, [txn.id]).get(txn.id, Decimal(0))
-    return _to_txn_out(txn, refunded)
+    return _to_txn_out(txn, refunded, gripr_transaction_attachment_repo.count_for_transaction(db, txn.id))
 
 
 @router.get("/transactions/export.csv")
@@ -523,32 +519,31 @@ def list_transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     uncategorized: bool = False,
+    q: str | None = Query(default=None, max_length=100),
     db: Session = Depends(get_db),
 ):
-    # A parent category rolls up its subcategories, the same way the budget page's "spent"
-    # figure does — picking "Groceries" should surface everything filed under it, not just
-    # transactions tagged at the top level.
-    category_ids = gripr_category_repo.descendant_ids(db, category_id) if category_id is not None else None
-    items, total = gripr_transaction_repo.list_transactions(
+    page = gripr_transaction_service.list_page(
         db,
+        category_id=category_id,
         offset=offset,
         limit=limit,
         sort_by=sort_by,
         sort_dir=sort_dir,
         account_id=account_id,
-        category_ids=category_ids,
         type_filter=txn_type,
         date_from=date_from,
         date_to=date_to,
         amount_min=amount_min,
         amount_max=amount_max,
         uncategorized=uncategorized,
-    )
-    refunded = gripr_transaction_repo.refunded_totals(
-        db, [t.id for t in items if t.type == GriprTransactionType.EXPENSE]
+        search=q,
     )
     return GriprTransactionPage(
-        items=[_to_txn_out(t, refunded.get(t.id, Decimal(0))) for t in items], total=total
+        items=[
+            _to_txn_out(t, page.refunded.get(t.id, Decimal(0)), page.attachment_counts.get(t.id, 0))
+            for t in page.items
+        ],
+        total=page.total,
     )
 
 
@@ -557,7 +552,7 @@ def create_transaction(payload: GriprTransactionCreate, db: Session = Depends(ge
     if payload.amount < 0:
         raise HTTPException(status_code=400, detail="amount must be a positive magnitude")
     try:
-        txn = gripr_transaction_service.create_transaction(db, **payload.model_dump())
+        txn = bank_sync_service.create_or_claim(db, **payload.model_dump())
     except gripr_transaction_service.InvalidRefundError as e:
         raise HTTPException(status_code=400, detail=str(e))
     db.commit()
@@ -579,6 +574,39 @@ def update_transaction(transaction_id: int, payload: GriprTransactionUpdate, db:
     db.commit()
     db.refresh(txn)
     return _single_txn_out(db, txn)
+
+
+@router.post("/transactions/bulk", response_model=GriprBulkOut)
+def bulk_transactions(payload: GriprTransactionBulk, db: Session = Depends(get_db)):
+    """One action on several transactions at once: file them under a (sub)category, move them to
+    another account, or delete them. All or nothing: any unknown id fails the whole request."""
+    with domain_errors():
+        result = gripr_transaction_service.bulk_apply(
+            db, payload.action, payload.transaction_ids, payload.category_id, payload.account_id
+        )
+    db.commit()
+    return GriprBulkOut(updated=result.updated, skipped=result.skipped)
+
+
+@router.get("/transactions/{transaction_id}/similar", response_model=GriprSimilarOut)
+def get_similar_uncategorised(transaction_id: int, db: Session = Depends(get_db)):
+    """How many other uncategorised transactions came from the same counterparty -- asked after
+    the reader categorises a bank-synced one, to offer filing those too."""
+    txn = gripr_transaction_repo.get_transaction(db, transaction_id)
+    if txn is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    counterparty, similar = bank_sync_service.similar_uncategorised(db, txn)
+    return GriprSimilarOut(counterparty=counterparty, count=len(similar))
+
+
+@router.post("/transactions/{transaction_id}/apply-to-similar", response_model=GriprAppliedOut)
+def apply_category_to_similar(transaction_id: int, db: Session = Depends(get_db)):
+    txn = gripr_transaction_repo.get_transaction(db, transaction_id)
+    if txn is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    updated = bank_sync_service.apply_category_to_similar(db, txn)
+    db.commit()
+    return GriprAppliedOut(updated=updated)
 
 
 # -- notifications -------------------------------------------------------------------------
@@ -616,6 +644,13 @@ def _receivables_out(db: Session) -> GriprReceivablesOut:
     return GriprReceivablesOut(total=sum((i.outstanding for i in items), Decimal(0)), items=items)
 
 
+@router.get("/depreciation", response_model=GriprDepreciationOverviewOut)
+def get_depreciation(db: Session = Depends(get_db)):
+    """The assets a recurring transfer is the depreciation of, and the funds those transfers fill."""
+    assets, funds = gripr_depreciation_service.overview(db)
+    return GriprDepreciationOverviewOut(assets=[vars(a) for a in assets], funds=[vars(f) for f in funds])
+
+
 @router.get("/receivables", response_model=GriprReceivablesOut)
 def list_receivables(db: Session = Depends(get_db)):
     """Expenses with money still to come back, oldest first, and the total owed."""
@@ -642,11 +677,84 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# -- a transaction's attachments (invoices, receipts; docs/adr/0035) ------------------------------
+
+
+def _get_transaction_or_404(db: Session, transaction_id: int):
+    txn = gripr_transaction_repo.get_transaction(db, transaction_id)
+    if txn is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return txn
+
+
+def _get_attachment_or_404(db: Session, transaction_id: int, attachment_id: int):
+    attachment = gripr_transaction_attachment_repo.get_with_content(db, attachment_id)
+    # An id from a different transaction is as good as unknown, not something to serve.
+    if attachment is None or attachment.transaction_id != transaction_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return attachment
+
+
+@router.get("/transactions/{transaction_id}/attachments", response_model=list[GriprTransactionAttachmentOut])
+def list_transaction_attachments(transaction_id: int, db: Session = Depends(get_db)):
+    _get_transaction_or_404(db, transaction_id)
+    return gripr_transaction_attachment_repo.list_for_transaction(db, transaction_id)
+
+
+@router.post(
+    "/transactions/{transaction_id}/attachments", response_model=GriprTransactionAttachmentOut, status_code=201
+)
+def add_transaction_attachment(transaction_id: int, file: UploadFile, db: Session = Depends(get_db)):
+    """A deliberate attach action, separate from the transaction's own JSON create/update."""
+    _get_transaction_or_404(db, transaction_id)
+    try:
+        accepted, content = transaction_attachment_service.accept_upload(
+            file.file, file.filename, gripr_transaction_attachment_repo.count_for_transaction(db, transaction_id)
+        )
+    except transaction_attachment_service.AttachmentRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    attachment = gripr_transaction_attachment_repo.create(
+        db,
+        transaction_id=transaction_id,
+        filename=accepted.filename,
+        content_type=accepted.content_type,
+        size_bytes=accepted.size_bytes,
+        content=content,
+    )
+    db.commit()
+    db.refresh(attachment)
+    return attachment
+
+
+@router.get("/transactions/{transaction_id}/attachments/{attachment_id}")
+def get_transaction_attachment(transaction_id: int, attachment_id: int, db: Session = Depends(get_db)):
+    attachment = _get_attachment_or_404(db, transaction_id, attachment_id)
+    return Response(
+        content=attachment.content,
+        media_type=attachment.content_type,
+        headers={
+            "Content-Disposition": transaction_attachment_service.content_disposition(attachment.filename),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/transactions/{transaction_id}/attachments/{attachment_id}", status_code=204)
+def delete_transaction_attachment(transaction_id: int, attachment_id: int, db: Session = Depends(get_db)):
+    attachment = _get_attachment_or_404(db, transaction_id, attachment_id)
+    gripr_transaction_attachment_repo.delete(db, attachment)
+    db.commit()
+
+
 # -- recurring transactions ----------------------------------------------------------------
 
 
-def _to_recurring_out(rule) -> GriprRecurringOut:
+def _to_recurring_out(rule, depreciations=()) -> GriprRecurringOut:
     return GriprRecurringOut(
+        depreciations=[
+            GriprDepreciationOut(account_id=d.account_id, account_name=d.account.name if d.account else None, amount=d.amount)
+            for d in depreciations
+        ],
         id=rule.id,
         name=rule.name,
         type=rule.type,
@@ -681,7 +789,8 @@ def _check_recurring_refund(db: Session, type_: GriprTransactionType, category_i
 def list_recurring(include_inactive: bool = True, db: Session = Depends(get_db)):
     gripr_recurring_service.generate_due(db)
     rules = gripr_recurring_repo.list_recurring(db, include_inactive=include_inactive)
-    return [_to_recurring_out(r) for r in rules]
+    grouped = gripr_depreciation_repo.for_rules(db, [r.id for r in rules])
+    return [_to_recurring_out(r, grouped.get(r.id, ())) for r in rules]
 
 
 @router.get("/recurring/upcoming", response_model=GriprUpcomingRecurringOut)
@@ -716,12 +825,17 @@ def create_recurring(payload: GriprRecurringCreate, db: Session = Depends(get_db
     if payload.amount < 0:
         raise HTTPException(status_code=400, detail="amount must be a positive magnitude")
     _check_recurring_refund(db, payload.type, payload.category_id)
-    rule = gripr_recurring_repo.create_recurring(
-        db, **payload.model_dump(), next_due_date=payload.start_date
-    )
+    fields = payload.model_dump(exclude={"depreciations"})
+    items = [(d.account_id, d.amount) for d in payload.depreciations]
+    try:
+        gripr_depreciation_service.validate(db, payload.type, payload.amount, items)
+    except gripr_depreciation_service.InvalidDepreciationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    rule = gripr_recurring_repo.create_recurring(db, **fields, next_due_date=payload.start_date)
+    gripr_depreciation_service.set_for_rule(db, rule, items)
     db.commit()
     db.refresh(rule)
-    return _to_recurring_out(rule)
+    return _to_recurring_out(rule, gripr_depreciation_repo.for_rule(db, rule.id))
 
 
 @router.put("/recurring/{recurring_id}", response_model=GriprRecurringOut)
@@ -732,11 +846,23 @@ def update_recurring(recurring_id: int, payload: GriprRecurringUpdate, db: Sessi
     if rule is None:
         raise HTTPException(status_code=404, detail="Recurring transaction not found")
     fields = payload.model_dump(exclude_unset=True)
+    items = None
+    if fields.get("depreciations") is not None:
+        items = [(d.account_id, d.amount) for d in payload.depreciations or []]
+    fields.pop("depreciations", None)
     _check_recurring_refund(db, fields.get("type", rule.type), fields.get("category_id", rule.category_id))
     gripr_recurring_service.update_recurring(db, rule, **fields)
+    try:
+        current = items if items is not None else gripr_depreciation_service.for_rule(db, rule.id)
+        gripr_depreciation_service.validate(db, rule.type, rule.amount, current)
+        if items is not None:
+            gripr_depreciation_service.set_for_rule(db, rule, items)
+    except gripr_depreciation_service.InvalidDepreciationError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     db.commit()
     db.refresh(rule)
-    return _to_recurring_out(rule)
+    return _to_recurring_out(rule, gripr_depreciation_repo.for_rule(db, rule.id))
 
 
 @router.delete("/recurring/{recurring_id}", status_code=204)
@@ -744,7 +870,7 @@ def delete_recurring(recurring_id: int, db: Session = Depends(get_db)):
     rule = gripr_recurring_repo.get_recurring(db, recurring_id)
     if rule is None:
         raise HTTPException(status_code=404, detail="Recurring transaction not found")
-    gripr_recurring_repo.delete_recurring(db, rule)
+    gripr_recurring_service.delete_rule(db, rule)
     db.commit()
 
 
@@ -810,6 +936,11 @@ def get_savings_goals(month: date_, db: Session = Depends(get_db)):
     return [_to_savings_goal_line_out(line) for line in lines]
 
 
+@router.get("/savings-goals/room", response_model=GriprSavingsRoomOut)
+def get_savings_room(month: date_, db: Session = Depends(get_db)):
+    return gripr_budget_service.get_savings_room(db, month)
+
+
 @router.put("/savings-goals", response_model=GriprSavingsGoalLineOut)
 def set_savings_goal(payload: GriprSavingsGoalSet, db: Session = Depends(get_db)):
     account = gripr_account_repo.get_account(db, payload.account_id)
@@ -846,13 +977,26 @@ def get_overview(month: date_ | None = None, months: int = 12, db: Session = Dep
     budget_lines = gripr_budget_service.get_budget_status(db, month)
     return GriprOverviewOut(
         net_worth=gripr_account_service.net_worth(db),
+        savings_health=GriprSavingsHealthOut(**vars(gripr_overview_service.savings_health(db, month))),
+        budget_attention=[
+            GriprBudgetAttentionOut(
+                category_id=a.category.id,
+                category_name=a.category.name,
+                kind=a.kind,
+                periods=a.periods,
+                budgeted=a.budgeted,
+                average_spent=a.average_spent,
+                suggested_budget=a.suggested_budget,
+            )
+            for a in gripr_budget_service.budget_attention(db, month)
+        ],
         money_put_aside=[vars(p) for p in gripr_overview_service.money_put_aside(db, months=months, as_of=month)],
         income_vs_expense=[
             {"month": m.month, "income": m.income, "expense": m.expense}
             for m in gripr_overview_service.income_vs_expense(db, months=months, as_of=month)
         ],
         spending_by_category=[
-            {"category_id": c.category_id, "name": c.name, "amount": c.amount}
+            {"category_id": c.category_id, "name": c.name, "amount": c.amount, "average": c.average, "change_pct": c.change_pct}
             for c in gripr_overview_service.spending_by_category(db, month)
         ],
         budget_status=[
@@ -877,3 +1021,32 @@ def get_category_trend(
         {"month": p.month, "amount": p.amount}
         for p in gripr_overview_service.category_trend(db, category_id, months=months, as_of=month)
     ]
+
+
+@router.get("/overview/subcategories", response_model=list[GriprCategoryAmountOut])
+def get_subcategory_breakdown(category_id: int, month: date_ | None = None, db: Session = Depends(get_db)):
+    category = gripr_category_repo.get_category(db, category_id)
+    if category is None or category.parent_id is not None:
+        raise HTTPException(status_code=404, detail="Top-level category not found")
+    return [
+        {"category_id": c.category_id, "name": c.name, "amount": c.amount}
+        for c in gripr_overview_service.subcategory_breakdown(db, category_id, month or date_.today())
+    ]
+
+
+@router.get("/overview/category-comparison", response_model=GriprCategoryComparisonOut)
+def get_category_comparison(category_id: int, month: date_ | None = None, db: Session = Depends(get_db)):
+    """A top-level category's period against its average over the periods before -- the category
+    dialog's "18% above usual" line."""
+    category = gripr_category_repo.get_category(db, category_id)
+    if category is None or category.parent_id is not None:
+        raise HTTPException(status_code=404, detail="Top-level category not found")
+    return vars(gripr_overview_service.category_comparison(db, category_id, month or date_.today()))
+
+
+@router.get("/overview/balance-forecast", response_model=GriprBalanceForecastOut)
+def get_balance_forecast(db: Session = Depends(get_db)):
+    """Always the period containing today -- a forecast only makes sense relative to "now", not
+    whatever period the rest of Overview's charts happen to be paged to."""
+    forecast = gripr_overview_service.balance_forecast(db)
+    return {**vars(forecast), "points": [vars(p) for p in forecast.points], "lowest": vars(forecast.lowest) if forecast.lowest else None}

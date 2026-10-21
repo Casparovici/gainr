@@ -1,11 +1,12 @@
 import { useEffect } from "react";
+import { t } from "../i18n";
 
 /** A short-lived confirmation with an "undo" action, for one-tap actions that save immediately
  * (no form, no confirm) and so need a cheap way back from a mis-tap. Sits above MobileBottomNav on
  * a phone, bottom-centre on desktop, and dismisses itself after `durationMs`. */
 export default function UndoToast({
   message,
-  undoLabel = "Ongedaan maken",
+  undoLabel = t("Ongedaan maken"),
   onUndo,
   onDismiss,
   durationMs = 8000,

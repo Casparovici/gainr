@@ -18,6 +18,8 @@ class ListrList(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The supermarket whose aisle order the list follows; None = the global category order.
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("grecipe_stores.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

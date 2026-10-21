@@ -23,7 +23,7 @@ that applies:
 import hmac
 import re
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -35,7 +35,7 @@ from app.models.gripr_recurring import GriprRecurringTransaction
 from app.models.gripr_transaction import GriprTransaction, GriprTransactionType
 from app.repositories import bank_sync_repo, broker_sync_repo, gripr_account_repo, gripr_portfolio_link_repo, gripr_recurring_repo
 from app.repositories.bank_sync_repo import FedAccount
-from app.services import gripr_receivable_service, gripr_recurring_service, gripr_transaction_service
+from app.services import gripr_depreciation_service, gripr_receivable_service, gripr_recurring_service, gripr_transaction_service
 from app.services.enablebanking_provider import (
     BankTransaction,
     EnableBankingError,
@@ -61,17 +61,24 @@ FALLBACK_CONSENT = timedelta(days=89)
 # How far apart a hand-entered row and the bank entry it records may be dated -- hand entries
 # land on the day of the purchase, the bank's on the day it was processed.
 MATCH_DAYS = 7
+# A Trading 212 card payment is dated the day it was made, so the row the reader entered for it is
+# dated the same, give or take a day of typing. A wider window let a later payment of the same
+# amount claim an older hand-entered row (a €16.75 payment on the 5th matched the 1st's), and be
+# lost. Top-ups and withdrawals, which can post days after the transfer, keep MATCH_DAYS.
+CARD_MATCH_DAYS = 2
 # How far a bank entry's amount may stray from its recurring rule's and still be that rule's
 # occurrence -- a salary or an energy bill moves a little month to month.
 FULFIL_TOLERANCE = Decimal("0.10")
 # Each run re-reads this far back from the last one, so an entry a bank books a few days late (a
 # weekend, a card settlement) is still picked up. Already-handled entries are skipped by reference.
 REFETCH_OVERLAP_DAYS = 7
-# An amount-only bank's entry is only handled this long after the bank booked it, so whatever it
-# gets checked against is in gripr first: the reader's own hand entry (typed in a day or two after
-# the purchase settles), or the other bank's half of a transfer. Re-reading REFETCH_OVERLAP_DAYS
-# back each run picks it up once it's due.
-AMOUNT_ONLY_GRACE_DAYS = 2
+# An entry that doesn't say who's on the other side (a Trading 212 deposit or withdrawal) is only
+# handled this long after the bank booked it, so the other bank's half of the transfer is in gripr
+# first. Re-reading REFETCH_OVERLAP_DAYS back each run picks it up once it's due. An amount-only
+# bank (Trade Republic) doesn't wait: what it books before the reader has typed the payment in is
+# claimed by that hand entry later (see `create_or_claim`), so nothing is booked twice.
+ANONYMOUS_GRACE_DAYS = 2
+CLAIMED_OUTCOME = "claimed"
 # How far from an amount rule's day of the month a matching entry may fall (a savings plan on
 # the 2nd executes a day or two later around a weekend).
 RULE_DAY_WINDOW = 3
@@ -141,7 +148,8 @@ def start_connect(
     """Starts a consent at the connection's bank and returns the URL to send the reader to. The
     state it's started with is kept so the callback can prove which consent it belongs to."""
     provider = provider or enablebanking_provider
-    if connection.provider == TRADING212 or not enablebanking_configured(provider):
+    redirect_url = config.ING_REDIRECT_URL
+    if connection.provider == TRADING212 or not enablebanking_configured(provider) or not redirect_url:
         raise BankNotConfigured()
     maximum = provider.maximum_consent_seconds(connection.aspsp_name, connection.aspsp_country)
     validity = timedelta(seconds=maximum) - CONSENT_MARGIN if maximum else FALLBACK_CONSENT
@@ -150,7 +158,7 @@ def start_connect(
     return provider.start_authorization(
         aspsp_name=connection.aspsp_name,
         country=connection.aspsp_country,
-        redirect_url=config.ING_REDIRECT_URL,
+        redirect_url=redirect_url,
         state=state,
         valid_until=(now or datetime.now(timezone.utc)) + validity,
     )
@@ -219,8 +227,37 @@ def normalize_iban(value: str) -> str:
     return re.sub(r"\s", "", value).upper()
 
 
+# A payment provider that puts itself in the counterparty's name: "PICNIC BY BUCKAROO",
+# "clubpellikaan.nl via Rabo Smart Pay" -- the merchant is the part before it ...
+_PROVIDER_SUFFIX = re.compile(r"\s+(via|by)\s+.*$", re.IGNORECASE)
+# ... or in front of it: "BCK*AH Campus", "CCV*Bakkerij", "SumUp *Koffiebar".
+_PROVIDER_PREFIX = re.compile(r"^(bck|ccv|sumup|zettle|sq|pp|iz|mollie|adyen|stripe|paypal)\s*[*_]\s*", re.IGNORECASE)
+# First words that say what kind of place it is rather than which one; a name starting with one
+# keeps its second word too, so "Nederlandse Spoorwegen" and "Nederlandse Gereformeerde Kerk" stay apart.
+_GENERIC_FIRST = {
+    "nederlandse", "nationale", "stichting", "vereniging", "gemeente", "restaurant", "cafe", "eetcafe",
+    "hotel", "camping", "bakkerij", "apotheek", "tankstation", "parkeren", "parking", "kapsalon",
+    "snackbar", "slagerij", "bloemen", "praktijk", "tandarts", "huisarts", "brasserie", "pizzeria",
+}
+_STOPWORDS = {"de", "het", "the", "een", "en", "van", "bv", "nv", "vof"}
+
+
 def normalize_merchant(value: str) -> str:
-    return normalize_text(value)[:120]
+    """The key a counterparty's payments are recognised by when learning categories: the same shop
+    should match however the bank spells a given payment -- a branch number, a city, a card
+    terminal, a payment provider in front of or after the name -- while two different shops
+    shouldn't. So: drop the provider, digits, punctuation and filler words, then keep the first
+    word, or the first two when the first is short or only says what kind of place it is.
+    "Albert Heijn 1234 Amsterdam" and "ALBERT HEIJN 5678 UTRECHT" both become "albert";
+    "AH to go Utrecht CS" becomes "ah to"."""
+    name = _PROVIDER_PREFIX.sub("", value.strip())
+    name = _PROVIDER_SUFFIX.sub("", name)
+    tokens = [t for t in re.split(r"[^a-z]+", name.casefold()) if len(t) > 1 and t not in _STOPWORDS]
+    if not tokens:
+        return normalize_text(value)[:120]
+    first = tokens[0]
+    key = first if len(tokens) == 1 or (len(first) >= 5 and first not in _GENERIC_FIRST) else " ".join(tokens[:2])
+    return key[:120]
 
 
 def trading212_entries(entries: list[CashEntry]) -> list[BankTransaction]:
@@ -342,6 +379,34 @@ def notes_for(txn: BankTransaction, bank_name: str, amount_only: bool = False, t
     return (" — ".join(parts) or txn.method or bank_name)[:NOTES_LIMIT]
 
 
+# -- hand entries ------------------------------------------------------------------------------
+
+
+def create_or_claim(db: Session, **fields) -> GriprTransaction:
+    """A transaction the reader types in. An amount-only bank (Trade Republic) books what it sees
+    before they have typed it in, as an uncategorised row to look up; when that same payment is
+    entered afterwards, the entry takes over that row -- keeping its link to the bank entry -- rather
+    than becoming a second one. Only rows nobody has filed yet are claimed, and only once: a row
+    the reader categorised, or one already claimed, is theirs, and a second payment of the same
+    amount is a new transaction."""
+    account_id: int | None = fields.get("account_id")
+    if fields.get("type") in (T.EXPENSE, T.INCOME) and account_id is not None:
+        homes = gripr_account_repo.pot_parents(db)
+        # The account itself, and the account it sits in when it is a pot.
+        accounts: set[int] = {account_id, homes.get(account_id) or account_id}
+        prefixes = [c.source_prefix for c in bank_sync_repo.list_connections(db) if c.amount_only]
+        match = bank_sync_repo.find_unfiled_amount_only_entry(
+            db, accounts, fields["amount"], fields["type"], fields["date"], MATCH_DAYS, prefixes
+        )
+        if match is not None:
+            row, record = match
+            gripr_transaction_service.update_transaction(db, row, **fields)
+            record.outcome = CLAIMED_OUTCOME
+            db.flush()
+            return row
+    return gripr_transaction_service.create_transaction(db, **fields)
+
+
 # -- recurring rules ---------------------------------------------------------------------------
 
 
@@ -425,7 +490,8 @@ def _book(
     if rule is not None and rule.type == T.TRANSFER:
         other_account_id = other_account_id or (rule.counter_account_id if txn.is_debit else rule.account_id)
         # The rule's own side on this bank's account -- the account itself, or a pot inside it.
-        account_id = rule.account_id if txn.is_debit else rule.counter_account_id
+        own_side = rule.account_id if txn.is_debit else rule.counter_account_id
+        account_id = own_side if own_side is not None else account_id
     elif rule is not None:
         account_id = rule.account_id  # the account, or the pot inside it the rule is paid from
     notes = notes_for(txn, connection.aspsp_name, connection.amount_only, transfer=other_account_id is not None)
@@ -433,6 +499,8 @@ def _book(
     if other_account_id is not None:
         source, target = (account_id, other_account_id) if txn.is_debit else (other_account_id, account_id)
         fields.update(type=T.TRANSFER, account_id=source, counter_account_id=target)
+        if rule is not None and rule.type == T.TRANSFER:
+            fields["depreciations"] = gripr_depreciation_service.for_rule(db, rule.id)
     elif rule is not None:
         fields.update(type=rule.type, account_id=account_id, category_id=rule.category_id)
     else:
@@ -444,8 +512,14 @@ def _book(
 
 def _handle(ctx: _Context, connection: BankConnection, account: BankSyncAccount, txn: BankTransaction) -> None:
     db, result = ctx.db, ctx.result
+    if not txn.merchant and not txn.anonymous and txn.counterparty_name:
+        # A bank that names no merchant (ING) is learned from by who was paid, like Trading 212's
+        # merchant -- so the category, or subcategory, the reader gave a payment carries to the next one.
+        txn = replace(txn, merchant=normalize_merchant(txn.counterparty_name))
     reference = f"{connection.source_prefix}:{txn.reference}"
     account_id = account.gripr_account_id
+    if account_id is None:
+        return  # only accounts linked to a gripr account are fetched (see _fetch)
     other = own_account_for(txn, ctx.fed, ctx.rules, connection.amount_only)
     if other == account_id:
         other = None
@@ -469,8 +543,9 @@ def _handle(ctx: _Context, connection: BankConnection, account: BankSyncAccount,
     # a Trading 212 top-up, finds the row the ING half booked.
     not_mine = [connection.source_prefix] if connection.amount_only or txn.anonymous else ctx.prefixes
     pots = {pot for pot, parent in ctx.homes.items() if parent == account_id} | ctx.shared_cash.get(account_id, set())
+    exact_dates = connection.provider == TRADING212 and not txn.anonymous
     existing = bank_sync_repo.find_unclaimed_match(
-        db, account_id, txn.amount, txn.is_debit, txn.transacted_on, MATCH_DAYS, not_mine, pots
+        db, account_id, txn.amount, txn.is_debit, txn.transacted_on, CARD_MATCH_DAYS if exact_dates else MATCH_DAYS, not_mine, pots
     )
     if existing is not None:
         # The bank says it happened: a pre-booked occurrence it stands for gets its loan/portfolio
@@ -521,6 +596,8 @@ def _fetch(
     if not is_connected(connection, t212=t212):
         result.problems[connection.aspsp_name] = "not configured" if connection.provider == TRADING212 else "not connected"
         return None
+    if connection.since is None:
+        return []  # not switched on (sync() only passes connections with a start date)
     date_from = connection.since
     if connection.last_synced_at is not None:
         date_from = max(connection.since, connection.last_synced_at.date() - timedelta(days=REFETCH_OVERLAP_DAYS))
@@ -528,11 +605,17 @@ def _fetch(
         return []  # switched on from a date still to come -- nothing to fetch yet (banks refuse one)
     if connection.provider == TRADING212:
         return _fetch_trading212(db, connection, t212, date_from, result)
-    accounts = [a for a in bank_sync_repo.list_accounts(db, connection.id) if a.gripr_account_id is not None and a.eb_uid]
+    session_id = connection.session_id
+    if session_id is None:  # is_connected above already requires one
+        result.problems[connection.aspsp_name] = "not connected"
+        return None
+    accounts = [a for a in bank_sync_repo.list_accounts(db, connection.id) if a.gripr_account_id is not None]
     fetched: list[tuple[BankSyncAccount, BankTransaction]] = []
     try:
         for account in accounts:
-            for txn in provider.get_transactions(connection.session_id, account.eb_uid, account.iban, date_from):
+            if not account.eb_uid:
+                continue
+            for txn in provider.get_transactions(session_id, account.eb_uid, account.iban, date_from):
                 fetched.append((account, txn))
     except EnableBankingRateLimitError:
         message = (
@@ -648,12 +731,16 @@ def sync(
     # On the same day: banks that can tell who the money went to before amount-only ones, and
     # outgoing before incoming -- so a transfer is booked by the half that knows it's a transfer
     # before the other half looks for it.
-    order = lambda p: (p[2].transacted_on, p[0].amount_only or p[2].anonymous, not p[2].is_debit, p[2].booked_on, p[2].reference)  # noqa: E731
+    # Entries that can't say who's on the other side go last, so everything they might check
+    # against -- a hand entry, the other bank's half of a transfer -- is in gripr first. Within a
+    # day, outgoing before incoming, so a transfer is booked by the half that knows it's one.
+    order = lambda p: (p[0].amount_only or p[2].anonymous, p[2].transacted_on, not p[2].is_debit, p[2].booked_on, p[2].reference)  # noqa: E731
     for connection, account, txn in sorted(fetched, key=order):
         reference = f"{connection.source_prefix}:{txn.reference}"
-        if reference in handled or txn.transacted_on < connection.since or txn.transacted_on > as_of:
+        before_start = connection.since is not None and txn.transacted_on < connection.since
+        if reference in handled or before_start or txn.transacted_on > as_of:
             continue
-        if (connection.amount_only or txn.anonymous) and txn.booked_on > as_of - timedelta(days=AMOUNT_ONLY_GRACE_DAYS):
+        if txn.anonymous and txn.booked_on > as_of - timedelta(days=ANONYMOUS_GRACE_DAYS):
             continue  # not yet: left unrecorded, so a later run handles it once it's due
         if txn.currency != "EUR":
             continue  # gripr's bank accounts are EUR; a foreign-currency entry would need FX first
@@ -663,3 +750,28 @@ def sync(
     for connection in succeeded:
         bank_sync_repo.update_connection(db, connection, last_synced_at=_utcnow(), last_error=None)
     return result
+
+
+def similar_uncategorised(db: Session, txn: GriprTransaction) -> tuple[str | None, list[GriprTransaction]]:
+    """The counterparty a bank-synced transaction came from (as its notes name it) and the other
+    uncategorised transactions from that same counterparty. Nothing for a transaction the bank
+    sync never saw, or a transfer."""
+    if txn.type == T.TRANSFER:
+        return None, []
+    merchant = bank_sync_repo.merchant_of(db, txn.id)
+    if not merchant:
+        return None, []
+    label = (txn.notes or "").split(" — ")[0].strip() or merchant
+    return label, bank_sync_repo.uncategorised_from_merchant(db, merchant, txn.type, txn.id)
+
+
+def apply_category_to_similar(db: Session, txn: GriprTransaction) -> int:
+    """Files every uncategorised transaction from the same counterparty under `txn`'s category,
+    through the transaction service so a loan-linked category gets its usual effect. Returns how
+    many it filed."""
+    if txn.category_id is None:
+        return 0
+    _, similar = similar_uncategorised(db, txn)
+    for other in similar:
+        gripr_transaction_service.update_transaction(db, other, category_id=txn.category_id)
+    return len(similar)

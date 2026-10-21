@@ -1,7 +1,6 @@
 from datetime import date as date_
-from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.gripr_savings_goal import GriprSavingsGoal
@@ -27,11 +26,3 @@ def upsert_goal(db: Session, account_id: int, month: date_, amount) -> GriprSavi
     db.flush()
     return goal
 
-
-def sum_goals_in_range(db: Session, account_id: int, month_from: date_, month_to: date_) -> Decimal:
-    query = select(func.coalesce(func.sum(GriprSavingsGoal.amount), 0)).where(
-        GriprSavingsGoal.account_id == account_id,
-        GriprSavingsGoal.month >= month_from,
-        GriprSavingsGoal.month <= month_to,
-    )
-    return db.execute(query).scalar_one()

@@ -1,11 +1,12 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 
 import { useTheme, type Theme } from "../hooks/useTheme";
+import { msg, t } from "../i18n";
 
 const OPTIONS: { value: Theme; Icon: typeof Sun; label: string }[] = [
-  { value: "light", Icon: Sun, label: "Light" },
-  { value: "dark", Icon: Moon, label: "Dark" },
-  { value: "system", Icon: Monitor, label: "Follow system" },
+  { value: "light", Icon: Sun, label: msg("Light") },
+  { value: "dark", Icon: Moon, label: msg("Dark") },
+  { value: "system", Icon: Monitor, label: msg("Follow system") },
 ];
 
 export default function ThemeToggle() {
@@ -18,8 +19,9 @@ export default function ThemeToggle() {
           key={value}
           type="button"
           onClick={() => setTheme(value)}
-          title={label}
-          aria-label={label}
+          title={t(label)}
+          aria-label={t(label)}
+
           aria-pressed={theme === value}
           className={`rounded p-1.5 transition-colors ${
             theme === value ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-700"

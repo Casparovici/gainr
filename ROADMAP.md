@@ -2,32 +2,130 @@
 
 ## Generic roadmap
 
+1. Search across all modules: one search box that finds a transaction, a position, a recipe, a plant, an exercise or a task
+2. Notifications on the phone (ntfy, or the Android app's own notifications) for what's due and what the syncs booked; the bell exists only in gainr and gripr, and is seen only when the app is open
+
 
 ## gainr Roadmap
 
 1. In the news section, rather than showing individual articles, I want to get a summary of the most important news of the last week, and these snapshots per week should be saved so I can scroll through them going forward
 2. Add some sort of model that decides whether the current valuation makes a position interesting to increase/trim
 3. Add Watchlist
+4. A "General" option in the Journal's position picker, so portfolio-level notes can be written in the app (migrated ones are linked to a hidden General position)
+5. Stock splits and other corporate actions: Yahoo's price history is split-adjusted but the ledger's share counts aren't, so a split in a holding breaks its value and P&L until it's recorded
 
 ## gripr roadmap
 
-1. Extend the gripr MCP server: add gainr portfolio transactions via chat, and read/ask about portfolio and personal finance data (net worth, spending, budgets, etc.) — the server and its first action (add a gripr transaction) are done, see Implemented
-2. Improve the overview tab (still thinking about it)
-3. Trade Republic investments into gainr
+1. Trade Republic investments into gainr
     - A TDIV purchase on Trade Republic books itself as a Buy in gainr's Auto portfolio with the real number of shares. Today the bank sync books only its cash, as a deposit in Auto, because Trade Republic's bank data carries no quantity (see the addendum on docs/adr/0029)
+2. Debt payoff projection: loan balances move through linked categories, but nothing projects a payoff date at the current pace or the interest still to come
+3. Overview polish: a different over-budget colour (some categories are red themselves) and the Reservations line sits on the €0 line in Money put aside
+4. Net worth over time: a monthly history chart, not only today's total on Accounts
+5. Yearly review: spending per category, income and savings rate for a year, against the year before
+6. Suggest recurring rules from bank payments that repeat (same counterparty, similar amount, regular interval)
 
 ## listr roadmap
 
-1. Recipe photos — an image on each recipe, shown on the Recepten tile grid (currently text-only), especially useful for recipes imported from Picnic
-2. Picnic order history import — pull past Picnic orders in, e.g. to seed/reconcile the inventory
-3. Barcode scan to add an item to a list or the inventory, using the Android app's camera
+1. Recipe photos — an image on each recipe, shown in the Recepten list (currently text-only), especially useful for recipes imported from Picnic
+2. Barcode scan to add an item to a list or the inventory, using the Android app's camera
+3. Scale a recipe to N people: `servings` is stored, but the ingredient amounts don't scale with it
+4. Cooking mode: a recipe's steps one at a time with the screen kept awake, like trainr's guided workout
+5. A shopping list that refreshes on its own while two people shop from it at the same time
 
 ## gardnr roadmap
 
 1. Option to lay a real photo of the garden under the map instead of (or alongside) the drawn zones
 2. Polygon-shaped zones, not just rectangles/circles, for an irregularly-shaped bed or border
+3. Seasonal care schedules: a schedule only runs in the months it applies (water April–September), so winter isn't full of watering
+4. Weather from Open-Meteo (no key needed): skip watering after rain, and warn about frost
+5. Harvest log with amounts: HARVEST is an action, but nothing records the yield
+
+## trainr roadmap
+
+1. Add overview of past workouts per period (week, month, year)
+2. Exercise videos from ExerciseDB v2 (AscendAPI on RapidAPI, Hobby plan subscribed) instead of the free-exercise-db photo pairs: an MP4 per exercise looping silently in the guided workout
+    - Store only the stable ExerciseDB id per exercise. Media URLs rotate every Monday 00:00 UTC, so the backend fetches fresh ones when a workout starts, one GetExerciseById call per exercise, because there's no batch endpoint. It may cache them until the next Monday only if the plan allows caching
+    - The key goes in `GAINR_EXERCISEDB_API_KEY` (`backend/.env`, `/etc/gainr/env`). Without a key, or with the API down, fall back to the current photos (ADR 0040)
+    - Check the Hobby plan's monthly quota and caching rights on the RapidAPI pricing page first
+3. Workout templates and repeating plans: save a session ("Push day") once and plan it every Monday and Thursday instead of typing it every time
+4. Body weight log, with its trend in the overview
+5. Estimated 1RM per exercise, and a "new record!" in the guided workout when it's beaten
+
+## taskr roadmap
+
+1. Repeating tasks (every week, every month) and tasks without a date
+2. The agenda as a calendar feed, like the meal plan's token-protected ICS feed, so the phone's calendar gives reminders
+3. listr as an agenda source: leftovers close to their use-by date, and pantry items below their minimum (ADR 0038 already lists listr as the next source)
+
+## briefr roadmap
+
+1. The first agent, the nightly holdings scan: a cloud scheduled task at 02:00 that reads `agents/holdings-scan/BRIEF.md` and `context/holdings.md` in the agents repository and commits its report (ADR 0044)
+2. The nightly app builder: picks one GitHub issue labelled `agent-ok`, opens a pull request (never merges) and reports it in briefr
+3. A morning digest on top of the inbox, and a warning when an agent missed its run
+4. briefr on the notification bell, "act" findings on taskr's agenda, and a Briefs section in a gainr position's detail
+5. Import problems shown in the app instead of only in the server's log
+6. Push notifications (ntfy) for "act" reports
 
 ## Implemented
+
+- briefr: a seventh module, an inbox for the reports AI agents write overnight: Act / Watch / Info per report, findings linked to positions and sources, read and archive; reports arrive from a private agents repository the server pulls, and the server exports tickers and weights for the agents (see `docs/adr/0044-briefr-agent-reports.md`).
+- gainr: an Income page (dividends received per month, year and holding, and expected over the next 12 months, with yields), the money-weighted return (XIRR) next to the time-weighted one per chart range, and a buy-only rebalance helper from the target weights (see `docs/adr/0041-gainr-income-mwr-rebalance.md`).
+- taskr: your own tasks next to the modules' items. Add one with a title and a day, tick it off on the agenda (with an undo), and change or delete it (see the addendum on `docs/adr/0038-taskr-agenda.md`).
+- trainr: how-to demos in the guided workout. Each exercise links a start and end photo plus the steps from free-exercise-db (public domain), which flip like a short GIF during a set. The next exercise's demo shows during the rest. On Oefeningen, a demo can be linked, changed or unlinked (see `docs/adr/0040-trainr-exercise-demos.md`).
+- trainr: an Overzicht page with a dashboard per activity. Cycling and running show km this week,
+  month, year and in total against the same point in the previous period, distance and average
+  speed (or pace) per month or year, and records; home gym shows sessions and volume, weight
+  progress per exercise and sets per muscle group (see the addendum on `docs/adr/0037-trainr-module.md`).
+- trainr: import rides and runs from a Strava account export; re-importing a newer export only
+  adds what's new.
+- A fifth module, trainr (Dutch UI), for workouts: plan and log home gym sessions, runs and rides
+  in a week/month planner and tick them off; runs and rides record distance, time and top speed; a
+  gym session lists exercises with sets, reps and kg, starting from last time. Historie totals per
+  month or year, and Oefeningen holds 43 suggested exercises you can extend (see
+  `docs/adr/0037-trainr-module.md`).
+- gainr: the Cash card's Transactions tab lists every deposit, withdrawal, dividend, interest
+  payment, fee and transfer behind the balance (read-only).
+- listr: leftovers under Voorraad > Restjes (freezer or fridge, meals, people, use-by date);
+  marking a recipe cooked offers to store them, and a planner day can eat a leftover instead.
+- All modules: dropdowns restyled with a chevron, more room and a hover state instead of the stock
+  browser look.
+- gainr: a Metrics tab in a position's detail with each closely tracked holding's analyst
+  checklist, from Yahoo where it has the figures and pointing elsewhere where it doesn't; a
+  journal note can carry the date it is about.
+- gripr: a category's dialog and Overview's Spending by category break spending down by
+  subcategory; an ING payment takes the (sub)category last given to that counterparty.
+- gripr: Trade Republic payments arrive on the next morning run, and entering one by hand takes
+  over the synced row instead of adding a second one.
+- both: attach files such as invoices or receipts (PDF, PNG, JPEG, WebP, up to 10 MB) to a
+  gainr or gripr transaction.
+- gripr: a monthly transfer into a fund can be an asset's depreciation, lowering the car's value
+  by its share.
+- gainr: Trading 212's weekly batch tells interest and cashback apart, and its sync moved into a
+  settings gear; settings sections start folded and sync is an icon everywhere.
+- listr: Picnic order history and spending, and Picnic deliveries booked into gripr that restock
+  Voorraad by themselves — the roadmap's "Picnic order history import" (done 2026-10-02, with
+  ordering, offers, prices and product pictures).
+- All modules: a settings gear on every page of every module with a font choice: the current Bricolage + Instrument, or Manrope + Inter, Fraunces + DM Sans, Space Grotesk + IBM Plex Sans, previewed on the options and remembered per browser. Package C's IBM Plex Mono for amounts is not applied.
+- gripr: bank payments learn their category per counterparty with loose matching (branch numbers,
+  cities and payment providers ignored), and after categorising one you're offered to file the other
+  uncategorised ones from that counterparty too (see the 2026-10-09 addendum to ADR 0029).
+- gripr: search on Transactions (notes, category, account or amount) and a select mode to file,
+  move or delete several transactions at once.
+- gripr: each category compared with its usual: on Overview's spending bars and in the category
+  dialog, against the 3 periods before (at the same point in them while a period is running).
+
+- gripr: the Overview tab reworked: a balance forecast for the current period, readable charts (a
+  budget list instead of the bar chart, round axes, the unfinished period dashed, category colours),
+  savings rate and runway, and a "Needs attention" list.
+
+- gripr: savings rate and runway on Overview: the share of income kept this period (and over the 3
+  before it), and how many months of typical spending your checking and savings would cover (the
+  median of the last three completed periods, reservations left out).
+- gripr: the balance forecast learns when you spend: the remaining budget follows the weekdays you
+  have spent on over the past 12 weeks (recurring payments and purchases over €500 left out), and it
+  shows what is safe to move out today: the forecast's low point minus a week of everyday spending.
+- gripr: a "Needs attention" list on Overview: budgets overspent, or under 75%, three completed
+  periods in a row, with a budget that would have fitted the average.
 
 - gripr: a notifications bell — new synced transactions (and how many need a category), money back
   for what you fronted, amounts owed after a month, banks needing attention; "seen" is per device.
@@ -118,7 +216,7 @@
   adjacent months are dropped from that list — they only existed for the calendar's column
   alignment); the desktop calendar grid is unchanged.
 - gainr: Integrate the DLT judgment about my positions to the active position overview — a colour-coded "DLT Rating" column (green Attractive / gray Neutral / red Critical, translated from De Lange Termijn's Dutch Oordeel). No API or export exists for this, so it's read from a screenshot of their dashboard and refreshed by hand via `backend/scripts/update_dlt_ratings.py`; anything DLT doesn't cover reads as Neutral rather than blank.
-- gripr: MCP server foundation, with one action — add a transaction by describing it in chat (e.g. "Today spent 5,59 euro on groceries"). A thin wrapper (`mcp-server/`) over the existing REST API, not a second copy of the business logic: `list_accounts`/`list_categories` (read-only, so the calling model can resolve a name to an id instead of guessing) and `add_transaction` (validates type/amount/category-vs-transfer shape before ever calling the API). Registered project-wide via `.mcp.json`. Reading/querying portfolio and personal-finance data, and gainr transactions, are still open — see the gripr roadmap.
+- gripr: MCP server foundation, with one action — add a transaction by describing it in chat (e.g. "Today spent 5,59 euro on groceries"). A thin wrapper (`mcp-server/`) over the existing REST API, not a second copy of the business logic: `list_accounts`/`list_categories` (read-only, so the calling model can resolve a name to an id instead of guessing) and `add_transaction` (validates type/amount/category-vs-transfer shape before ever calling the API). Removed again on 2026-10-05, together with `.mcp.json`.
 - both: for both gainr and gripr, in transaction view, the filters and other input fields are shown in white with a white background in the dark mode — native form controls (select, date input) follow the CSS `color-scheme` property, not our `.dark` class; one line (`.dark { color-scheme: dark; }`) fixed every input at once
 - gainr: remove ticker from active position overview — the name already identifies the row and the ticker is one click away in the position detail card
 - both: Make the app more usable on a phone — the header's sub-nav no longer forces the page wider than the screen (its own scrollable strip below `sm`), gripr's Transactions table scrolls inside itself instead of dragging the whole page, and  three fixed 3-column stat rows (gripr Budget, and the position card's two stat grids) stack to one column so values stop clipping

@@ -140,7 +140,7 @@ def _banks(db: Session, now: datetime) -> list[Notification]:
         if not c.enabled:
             continue
         last_ok = _utc(c.last_synced_at) if c.last_synced_at else epoch
-        if c.provider != bank_sync_service.TRADING212 and not bank_sync_service.is_connected(c):
+        if c.provider != bank_sync_service.TRADING212 and not bank_sync_service.is_connected(c, now.astimezone(timezone.utc).replace(tzinfo=None)):
             items.append(Notification(
                 key=f"bank:{c.source_prefix}:reconnect", kind="bank", at=last_ok,
                 title=f"Reconnect {c.aspsp_name}", detail="Its consent has ended, so nothing syncs from it.", link="/gripr",

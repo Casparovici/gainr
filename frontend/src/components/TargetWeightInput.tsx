@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { Position } from "../api/types";
 import { usePortfolio } from "../hooks/usePortfolio";
 import { apiToDecimalInput, decimalInputToApi, formatWeight } from "../utils/format";
+import { t } from "../i18n";
 
 /** The backend's `{"detail": "..."}` body, buried in the generic `request()` error message
  * (`"400 Bad Request: {\"detail\": \"...\"}"`) — pulled out so a rejected write can show the
@@ -22,7 +23,7 @@ function extractDetail(err: unknown): string {
       }
     }
   }
-  return "Couldn't save that value.";
+  return t("Couldn't save that value.");
 }
 
 /** Editable target-weight cell shared by the active positions table and a position's detail
@@ -79,7 +80,7 @@ export default function TargetWeightInput({
     const current = position.target_weight_pct;
     if (next === null ? current === null : current !== null && Number(next) === Number(current)) return;
     if (next === null && value.trim() !== "") {
-      setError("Enter a number, e.g. 2,5.");
+      setError(t("Enter a number, e.g. 2,5."));
       return;
     }
     mutation.mutate(next);
@@ -99,8 +100,8 @@ export default function TargetWeightInput({
             setEditing(true);
           }}
           className="group inline-flex items-center gap-1 tabular-nums"
-          title="Edit target weight"
-          aria-label="Edit target weight"
+          title={t("Edit target weight")}
+          aria-label={t("Edit target weight")}
         >
           <Pencil className="h-3 w-3 shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" strokeWidth={2} />
           {formatWeight(position.target_weight_pct)}

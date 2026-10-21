@@ -1,10 +1,11 @@
 from datetime import date as date_
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.asset import Asset
-from app.models.transaction import Transaction
+from app.models.transaction import CASH_MOVEMENT_TYPES, Transaction
+from app.models.transaction_attachment import TransactionAttachment
 
 
 def list_transactions(
@@ -20,6 +21,7 @@ def list_transactions(
     broker: str | None = None,
     date_from: date_ | None = None,
     date_to: date_ | None = None,
+    cash_movements: bool = False,
 ) -> tuple[list[Transaction], int]:
     query = select(Transaction).options(joinedload(Transaction.asset)).where(Transaction.portfolio_id == portfolio_id)
     count_query = select(func.count()).select_from(Transaction).where(Transaction.portfolio_id == portfolio_id)
@@ -35,6 +37,10 @@ def list_transactions(
     if type_filter:
         query = query.where(Transaction.type == type_filter)
         count_query = count_query.where(Transaction.type == type_filter)
+    if cash_movements:
+        # The Cash card's ledger: every cash-moving type except buys and sells.
+        query = query.where(Transaction.type.in_(CASH_MOVEMENT_TYPES))
+        count_query = count_query.where(Transaction.type.in_(CASH_MOVEMENT_TYPES))
     if broker:
         query = query.where(Transaction.broker == broker)
         count_query = count_query.where(Transaction.broker == broker)
@@ -98,6 +104,9 @@ def update_transaction(db: Session, txn: Transaction, **fields) -> Transaction:
 
 
 def delete_transaction(db: Session, txn: Transaction) -> None:
+    # SQLite doesn't enforce the attachments' ON DELETE CASCADE (foreign keys are off), so the
+    # files go explicitly -- otherwise they'd outlive the transaction as unreachable rows.
+    db.execute(delete(TransactionAttachment).where(TransactionAttachment.transaction_id == txn.id))
     db.delete(txn)
     db.flush()
 

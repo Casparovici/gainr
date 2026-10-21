@@ -9,7 +9,7 @@ from app.db import Base
 
 class GriprBudget(Base):
     __tablename__ = "pefi_budgets"
-    __table_args__ = (UniqueConstraint("category_id", "month", name="uq_gripr_budget_category_month"),)
+    __table_args__ = (UniqueConstraint("category_id", "month", name="uq_pefi_budget_category_month"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("pefi_categories.id"), index=True)

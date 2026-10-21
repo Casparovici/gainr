@@ -6,32 +6,28 @@ import SortableHeader from "./SortableHeader";
 import TargetWeightInput from "./TargetWeightInput";
 import { useColumnVisibility } from "../hooks/useColumnVisibility";
 import { useTableSort, type SortAccessors, type SortValue } from "../hooks/useTableSort";
-import type { DltJudgment, Position } from "../api/types";
+import type { Position } from "../api/types";
 import {
   formatCurrency,
-  formatDate,
   formatEur,
   formatPct,
   formatQuantity,
+  formatSignedEur,
   formatWeight,
   pnlColorClass,
-  todayIsoDate,
   toNumber,
 } from "../utils/format";
-
-// Same badge shape gripr uses for its expense/income/transfer pills, reused here so the two
-// halves of the app read as one visual language rather than inventing a second rating style.
-const DLT_BADGE: Record<DltJudgment, { label: string; className: string }> = {
-  attractive: { label: "Attractive", className: "bg-emerald-50 text-emerald-700" },
-  neutral: { label: "Neutral", className: "bg-slate-100 text-slate-600" },
-  critical: { label: "Critical", className: "bg-red-50 text-red-700" },
-};
+import DltBadge from "./DltBadge";
+import WeightBar, { weightScale } from "./WeightBar";
+import { QueryError } from "./ui/QueryError";
+import { msg, t } from "../i18n";
 
 type ColumnKey =
   | "name"
   | "quantity"
   | "price"
   | "value"
+  | "today"
   | "unrealized"
   | "realized"
   | "weight"
@@ -52,20 +48,21 @@ interface Column {
   fixed?: boolean;
   sortValue: (p: Position) => SortValue;
   className?: (p: Position, isCash: boolean) => string;
-  render: (p: Position, isCash: boolean, onSelect: (p: Position) => void) => ReactNode;
+  /** `scale` is the weight that fills a weight bar (see WeightBar), shared by every row. */
+  render: (p: Position, isCash: boolean, onSelect: (p: Position) => void, scale: number) => ReactNode;
 }
 
 const COLUMNS: readonly Column[] = [
   {
     key: "name",
-    label: "Name",
+    label: msg("Name"),
     align: "left",
     fixed: true,
     sortValue: (p) => p.name,
     // On phones the name is pinned (see `.pinned-col`) and capped at two lines in a fixed width,
     // so a long fund name can't swallow the screen -- the full name is one tap away in its card.
     render: (p, _isCash, onSelect) => (
-      <div className="flex items-center gap-2.5 max-sm:w-36" title={p.name}>
+      <div className="flex items-center gap-2.5 max-sm:w-36 sm:min-w-[12rem]" title={p.name}>
         <AssetLogo assetId={p.asset_id} name={p.name} ticker={p.ticker} />
         <div className="min-w-0">
           {/* The whole row is clickable for convenience, but the name is the real control —
@@ -82,7 +79,7 @@ const COLUMNS: readonly Column[] = [
             {p.name}
           </button>
           {p.price_stale && (
-            <div className="text-xs text-amber-600 max-sm:truncate">price unavailable, using last known</div>
+            <div className="text-xs text-amber-600 max-sm:truncate">{t("price unavailable, using last known")}</div>
           )}
         </div>
       </div>
@@ -90,14 +87,14 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "quantity",
-    label: "Quantity",
+    label: msg("Quantity"),
     align: "right",
     sortValue: (p) => toNumber(p.quantity),
     render: (p, isCash) => (isCash ? "—" : formatQuantity(p.quantity)),
   },
   {
     key: "price",
-    label: "Price",
+    label: msg("Price"),
     align: "right",
     sortValue: (p) => toNumber(p.current_price_native),
     className: () => "text-slate-600",
@@ -105,15 +102,32 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "value",
-    label: "Value",
+    label: msg("Value"),
     align: "right",
     sortValue: (p) => toNumber(p.market_value_eur),
     className: () => "font-medium",
     render: (p) => formatEur(p.market_value_eur),
   },
   {
+    key: "today",
+    label: msg("Today"),
+    align: "right",
+    // On the percentage, like Unrealized: it ranks holdings regardless of size.
+    sortValue: (p) => toNumber(p.day_change_pct),
+    className: (p, isCash) => `whitespace-nowrap ${isCash ? "text-slate-400" : `font-medium ${pnlColorClass(p.day_change_pct)}`}`,
+    render: (p, isCash) =>
+      isCash || p.day_change_pct === null ? (
+        "—"
+      ) : (
+        <>
+          {formatPct(p.day_change_pct)}
+          <span className="ml-1 text-xs font-normal">({formatSignedEur(p.day_change_eur)})</span>
+        </>
+      ),
+  },
+  {
     key: "unrealized",
-    label: "Unrealized P&L",
+    label: msg("Unrealized P&L"),
     align: "right",
     // Sorted on the percentage rather than the euro amount: it's the one that ranks holdings
     // against each other regardless of position size.
@@ -131,7 +145,7 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "realized",
-    label: "Realized P&L",
+    label: msg("Realized P&L"),
     align: "right",
     sortValue: (p) => toNumber(p.realized_pnl_eur),
     // Most open positions have never been sold out of, and a column of €0,00 would drown the
@@ -142,15 +156,15 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "weight",
-    label: "Weight",
-    align: "right",
+    label: msg("Weight · target"),
+    align: "left",
     sortValue: (p) => toNumber(p.weight_pct),
-    className: () => "text-slate-500",
-    render: (p) => formatWeight(p.weight_pct),
+    className: () => "min-w-[9rem]",
+    render: (p, _isCash, _onSelect, scale) => <WeightBar weight={p.weight_pct} target={p.target_weight_pct} scale={scale} showTarget={false} />,
   },
   {
     key: "targetWeight",
-    label: "Target",
+    label: msg("Target"),
     align: "right",
     sortValue: (p) => toNumber(p.target_weight_pct),
     className: () => "text-slate-500",
@@ -163,7 +177,7 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "targetDrift",
-    label: "Drift",
+    label: msg("Drift"),
     align: "right",
     // By percentage points, not the euro amount: it's the reading that ranks holdings against
     // each other regardless of position size, the same reason "unrealized" sorts on its % too.
@@ -181,16 +195,14 @@ const COLUMNS: readonly Column[] = [
   },
   {
     key: "dlt",
-    label: "DLT Rating",
+    label: msg("DLT Rating"),
     align: "left",
     // Best first when sorted ascending, rather than alphabetical ("attractive" < "critical" <
     // "neutral"), which would bury the calls that actually matter in the middle of the table.
     // No coverage sorts alongside an explicit "neutral" call -- same badge, same rank.
     sortValue: (p) => ({ attractive: 0, neutral: 1, critical: 2 })[p.dlt_judgment ?? "neutral"],
-    render: (p) => {
-      const badge = DLT_BADGE[p.dlt_judgment ?? "neutral"];
-      return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>{badge.label}</span>;
-    },
+    // Cash isn't a security DLT rates, so it gets no badge rather than a "Neutral" look.
+    render: (p, isCash) => (isCash ? <span className="text-slate-300">—</span> : <DltBadge judgment={p.dlt_judgment} />),
   },
 ] as const;
 
@@ -200,11 +212,18 @@ const ALWAYS_ON = COLUMNS.filter((c) => c.fixed).map((c) => c.key);
 export default function PositionsTable({
   positions,
   isLoading,
+  isError = false,
+  onRetry,
   onSelect,
+  onRebalance,
 }: {
   positions: Position[] | undefined;
   isLoading: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
   onSelect: (position: Position) => void;
+  /** Opens the rebalance helper; the button only shows once a holding has a target. */
+  onRebalance?: () => void;
 }) {
   const { isHidden, toggle: toggleColumn, showAll, hiddenCount } = useColumnVisibility<ColumnKey>(
     "positions",
@@ -236,27 +255,21 @@ export default function PositionsTable({
     toggleColumn(key);
   };
 
-  // Holdings legitimately carry different price dates: crypto prices around the clock, and
-  // while Amsterdam is trading, New York hasn't opened yet. Reporting whichever row happened
-  // to sort first as the whole table's date was simply wrong — so report the span, which also
-  // makes a holding that's genuinely stuck days behind visible instead of silently blended in.
-  const priceDates = (positions ?? []).map((p) => p.price_date).filter((d): d is string => d !== null);
-  const latestPriceDate = priceDates.length ? priceDates.reduce((a, b) => (a > b ? a : b)) : undefined;
-  const oldestPriceDate = priceDates.length ? priceDates.reduce((a, b) => (a < b ? a : b)) : undefined;
-  // "Close" is only true once the day is over; mid-session that newest price is a live one.
-  const latestIsToday = latestPriceDate === todayIsoDate();
+  const scale = weightScale(positions ?? []);
+  const holdingCount = positions?.filter((p) => p.ticker !== "CASH").length;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 text-sm font-medium text-slate-700">
-        <span>Active positions {positions ? `(${positions.length})` : ""}</span>
+    <section aria-label={t("Holdings")} className="overflow-hidden rounded-2xl border border-ui-border bg-ui-surface">
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+        <h2 className="m-0 font-display text-xl font-bold tracking-[-0.01em] text-ui-ink">{t("Holdings")}{holdingCount !== undefined && <span className="ml-1.5 text-ui-muted">{holdingCount}</span>}
+        </h2>
         <div className="flex items-center gap-3">
-          {latestPriceDate && oldestPriceDate && (
-            <span className="text-xs font-normal text-slate-400">
-              {latestPriceDate === oldestPriceDate
-                ? `prices as of ${formatDate(latestPriceDate)}${latestIsToday ? "" : " close"}`
-                : `prices as of ${formatDate(latestPriceDate)}, oldest ${formatDate(oldestPriceDate)}`}
-            </span>
+          {onRebalance && positions?.some((p) => p.target_weight_pct !== null) && (
+            <button
+              type="button"
+              onClick={onRebalance}
+              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-normal text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            >{t("Rebalance")}</button>
           )}
           <ColumnPicker
             columns={COLUMNS}
@@ -277,7 +290,8 @@ export default function PositionsTable({
               {visible.map((column) => (
                 <SortableHeader
                   key={column.key}
-                  label={column.label}
+                  label={t(column.label)}
+
                   sortKey={column.key}
                   sort={sort}
                   onToggle={toggle}
@@ -290,15 +304,17 @@ export default function PositionsTable({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={visible.length} className="px-4 py-6 text-center text-slate-400">
-                  Loading…
+                <td colSpan={visible.length} className="px-4 py-6 text-center text-slate-400">{t("Loading…")}</td>
+              </tr>
+            ) : isError ? (
+              <tr>
+                <td colSpan={visible.length} className="px-4 py-6 text-center">
+                  <QueryError message={t("Couldn't load positions.")} onRetry={onRetry} />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={visible.length} className="px-4 py-6 text-center text-slate-400">
-                  No active positions
-                </td>
+                <td colSpan={visible.length} className="px-4 py-6 text-center text-slate-400">{t("No active positions")}</td>
               </tr>
             ) : (
               rows.map((p) => {
@@ -316,7 +332,7 @@ export default function PositionsTable({
                           column.fixed ? "pinned-col" : ""
                         } ${column.className?.(p, isCash) ?? ""}`}
                       >
-                        {column.render(p, isCash, onSelect)}
+                        {column.render(p, isCash, onSelect, scale)}
                       </td>
                     ))}
                   </tr>
@@ -326,6 +342,6 @@ export default function PositionsTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }

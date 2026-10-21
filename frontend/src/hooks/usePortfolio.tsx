@@ -20,6 +20,9 @@ interface PortfolioContextValue {
   portfolioId: number | null;
   setPortfolioId: (id: number) => void;
   isLoading: boolean;
+  /** The portfolio list couldn't be loaded -- not the same as having none yet. */
+  isError: boolean;
+  refetch: () => void;
 }
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
@@ -58,7 +61,14 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <PortfolioContext.Provider value={{ portfolios, portfolioId, setPortfolioId, isLoading: query.isLoading }}>
+    <PortfolioContext.Provider value={{
+        portfolios,
+        portfolioId,
+        setPortfolioId,
+        isLoading: query.isLoading,
+        isError: query.isError,
+        refetch: () => void query.refetch(),
+      }}>
       {children}
     </PortfolioContext.Provider>
   );
@@ -68,4 +78,10 @@ export function usePortfolio(): PortfolioContextValue {
   const ctx = useContext(PortfolioContext);
   if (!ctx) throw new Error("usePortfolio must be used within a PortfolioProvider");
   return ctx;
+}
+
+/** The selected portfolio's id where a PortfolioProvider is above (always, in the app), else
+ * null -- for app-wide chrome like the module switcher that shouldn't need one to render. */
+export function useSelectedPortfolioId(): number | null {
+  return useContext(PortfolioContext)?.portfolioId ?? null;
 }

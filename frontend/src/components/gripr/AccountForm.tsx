@@ -1,8 +1,10 @@
 import { useState } from "react";
 
 import { GRIPR_ACCOUNT_TYPES, type GriprAccountType, type GriprBalanceMode } from "../../api/griprTypes";
+import { ACCOUNT_TYPE_NAMES } from "../../utils/accountColor";
 import { decimalInputToApi } from "../../utils/format";
 import ModalOverlay from "../ModalOverlay";
+import { t as tr } from "../../i18n";
 
 const inputClass =
   "rounded-md border border-outline px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
@@ -57,28 +59,25 @@ export default function AccountForm({
 
   return (
     <ModalOverlay onClose={onCancel} cardClassName="w-full max-w-sm rounded-[28px] bg-surface p-6 shadow-xl">
-      <h2 className="text-lg font-medium text-on-surface">New account</h2>
+      <h2 className="text-lg font-medium text-on-surface">{tr("New account")}</h2>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-        {field("Name", <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />)}
+        {field(tr("Name"), <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />)}
         {field(
-          "Type",
+          tr("Type"),
           <select value={type} onChange={(e) => setType(e.target.value as GriprAccountType)} className={inputClass}>
             {GRIPR_ACCOUNT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {tr(ACCOUNT_TYPE_NAMES[t])}
               </option>
             ))}
           </select>,
         )}
         {field(
-          manual ? "Current balance" : "Opening balance",
+          manual ? tr("Current balance") : tr("Opening balance"),
           <input inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className={inputClass} />,
         )}
         {!manual && (
-          <p className="text-xs text-on-surface-variant">
-            This account tracks its balance from transactions — the opening balance is what it held before its
-            first booked transaction.
-          </p>
+          <p className="text-xs text-on-surface-variant">{tr("This account tracks its balance from transactions — the opening balance is what it held before its first booked transaction.")}</p>
         )}
 
         <div className="mt-2 flex justify-end gap-2">
@@ -86,15 +85,13 @@ export default function AccountForm({
             type="button"
             onClick={onCancel}
             className="rounded-full border border-outline px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-          >
-            Cancel
-          </button>
+          >{tr("Cancel")}</button>
           <button
             type="submit"
             disabled={isSubmitting}
             className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:opacity-90 disabled:opacity-50"
           >
-            {isSubmitting ? "Saving…" : "Create"}
+            {isSubmitting ? tr("Saving…") : tr("Create")}
           </button>
         </div>
       </form>

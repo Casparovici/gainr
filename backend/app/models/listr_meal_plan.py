@@ -18,9 +18,19 @@ class ListrMealPlan(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     date: Mapped[date_] = mapped_column(Date, unique=True, index=True)
     recipe_id: Mapped[int | None] = mapped_column(ForeignKey("grecipe_recipes.id"), nullable=True)
+    # A leftover eaten this day instead of a recipe cooked. Marking the day cooked takes one meal
+    # off it (listr_leftover_service.sync_meal_plan_consumption); a day carries a recipe or a
+    # leftover, never both.
+    leftover_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grecipe_leftovers.id", ondelete="SET NULL"), nullable=True
+    )
+    # Whether a meal has been taken off leftover_id for this row, so saving the day twice (or
+    # un-cooking it) can't deduct or refund twice.
+    leftover_consumed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_cooked: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     recipe = relationship("ListrRecipe")
+    leftover = relationship("ListrLeftover")

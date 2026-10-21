@@ -60,7 +60,7 @@ function renderCard(path = "/gripr") {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
-        <BankSettings />
+        <BankSettings defaultOpen />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -218,5 +218,30 @@ describe("BankSettings", () => {
     expect(within(section).getByText(/take the category you last gave that shop/)).toBeVisible();
     expect(within(section).queryByRole("button", { name: /connect/i })).not.toBeInTheDocument();
     expect(within(section).getByRole("checkbox", { name: "Book new transactions automatically" })).toBeChecked();
+  });
+
+  it("starts folded, with Sync now as an icon in the section's header", async () => {
+    vi.mocked(griprApi.getBanks).mockResolvedValue(status());
+    vi.mocked(griprApi.syncBanks).mockResolvedValue({ booked: 2, matched: 0, fulfilled: 0, counterparts: 0, problems: {} });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <BankSettings />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const toggle = await screen.findByRole("button", { name: "Banks" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "ING" })).not.toBeInTheDocument();
+    const sync = await screen.findByRole("button", { name: "Sync now" });
+    expect(sync).toHaveTextContent(""); // an icon, no word
+
+    await userEvent.click(sync);
+
+    // The result is in the body, so syncing opens the section.
+    expect(await screen.findByRole("status")).toHaveTextContent("2 booked");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 });

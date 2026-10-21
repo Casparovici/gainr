@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Asset } from "../api/types";
+import { t } from "../i18n";
 
 const inputClass =
   "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -16,7 +17,7 @@ export default function AssetCombobox({
   value,
   onChange,
   onAddNew,
-  placeholder = "Search ticker or name…",
+  placeholder = t("Search ticker or name…"),
 }: {
   assets: Asset[];
   value: number | null;
@@ -109,7 +110,7 @@ export default function AssetCombobox({
 
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-          {filtered.length === 0 && <div className="px-2 py-1.5 text-sm text-slate-400">No matching assets</div>}
+          {filtered.length === 0 && <div className="px-2 py-1.5 text-sm text-slate-400">{t("No matching assets")}</div>}
           {filtered.map((a, i) => (
             <button
               key={a.id}
@@ -131,9 +132,7 @@ export default function AssetCombobox({
             className={`mt-1 w-full rounded-md border-t border-slate-100 px-2 py-1.5 text-left text-sm text-blue-700 ${
               filtered.length === highlighted ? "bg-slate-50" : "hover:bg-slate-50"
             }`}
-          >
-            + Add new asset…
-          </button>
+          >{t("+ Add new asset…")}</button>
         </div>
       )}
     </div>

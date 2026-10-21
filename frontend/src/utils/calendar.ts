@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { todayIsoDate } from "./format";
 
 /** Whole calendar days from `today` to `iso` (both YYYY-MM-DD), negative for the past. Computed
@@ -13,9 +14,10 @@ export function daysUntil(iso: string, today: string = todayIsoDate()): number {
 /** "today", "tomorrow", "in 5 days", "in 4 weeks", "in 3 months" -- coarser the further out,
  * since nobody plans around "in 47 days". */
 export function formatCountdown(days: number): string {
-  if (days <= 0) return "today";
-  if (days === 1) return "tomorrow";
-  if (days < 14) return `in ${days} days`;
-  if (days < 60) return `in ${Math.round(days / 7)} weeks`;
-  return `in ${Math.round(days / 30)} months`;
+  if (days <= 0) return t("today");
+  if (days === 1) return t("tomorrow");
+  // Always two or more from here on, so the plural alone.
+  if (days < 14) return t("in {n} days", { n: days });
+  if (days < 60) return t("in {n} weeks", { n: Math.round(days / 7) });
+  return t("in {n} months", { n: Math.round(days / 30) });
 }

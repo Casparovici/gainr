@@ -11,6 +11,7 @@ import ListrInventory from "./Inventory";
 vi.mock("../../api/listrClient", () => ({
   listrApi: {
     listInventory: vi.fn(),
+    listLeftovers: vi.fn().mockResolvedValue([]),
     setItemInventoryTracking: vi.fn(),
     adjustInventoryMinimum: vi.fn(),
     adjustInventoryCount: vi.fn(),

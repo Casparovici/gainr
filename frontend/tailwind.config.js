@@ -6,7 +6,8 @@ export default {
     extend: {
       fontFamily: {
         // Headings in gardnr's redesign and the module wordmarks (ModuleLogo.tsx).
-        display: ['"Bricolage Grotesque"', "ui-sans-serif", "system-ui", "sans-serif"],
+        // The face is the font package picked in Settings (--font-display, index.css).
+        display: ["var(--font-display)"],
       },
       // Material 3 tonal roles for gripr's redesign -- each resolves through a CSS custom
       // property defined per-theme under `.module-gripr` in index.css, the same

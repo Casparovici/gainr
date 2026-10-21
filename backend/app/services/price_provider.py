@@ -4,6 +4,14 @@ external data source (yfinance today; a paid provider or IBKR feed later)."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
+def to_price(value) -> Decimal:
+    """A provider's number as a Decimal, by way of its shortest decimal form: Yahoo hands back
+    binary floats (42.64 arrives as 42.6400000000000005684...), and str() recovers the 42.64 it
+    published instead of carrying the binary noise into every multiplication after it."""
+    return Decimal(str(value))
+
 
 # What a symbol search may return as something to hold -- not news, futures or options.
 _HOLDABLE = {"EQUITY", "ETF", "MUTUALFUND", "CRYPTOCURRENCY"}
@@ -21,9 +29,18 @@ class SymbolMatch:
     quote_type: str
 
 
+@dataclass(frozen=True)
+class Quote:
+    """The provider's latest traded price for a symbol and the moment of that trade -- an
+    intraday price while the session is open, the session's close once it has ended."""
+
+    price: Decimal
+    quoted_at: datetime  # timezone-aware
+
+
 class PriceProvider(ABC):
     @abstractmethod
-    def get_history(self, symbol: str, start: date, end: date) -> dict[date, float]:
+    def get_history(self, symbol: str, start: date, end: date) -> dict[date, Decimal]:
         """Daily close prices for `symbol` between start and end (inclusive), keyed by date.
 
         Daily closes are the only price granularity this app uses — the most recent one is
@@ -39,7 +56,18 @@ class PriceProvider(ABC):
         A provider without search returns nothing, and the reader types the symbol themselves."""
         return []
 
-    def get_last_settled_close(self, symbol: str) -> tuple[date, float] | None:
+    def get_quote(self, symbol: str) -> Quote | None:
+        """The latest traded price, for the hourly live quote (docs/adr/0047). Never stored as
+        a daily close. A provider without quotes returns None, and values stay on closes."""
+        return None
+
+    def get_intraday(self, symbol: str) -> list[tuple[datetime, Decimal]]:
+        """The last trading session's prices through the day, oldest first, as timezone-aware
+        (moment, price) pairs -- the 1D price chart (docs/adr/0053). A provider without intraday
+        prices returns nothing, and the chart falls back to the daily closes. Never stored."""
+        return []
+
+    def get_last_settled_close(self, symbol: str) -> tuple[date, Decimal] | None:
         """The close of the most recent *finished* trading session, with the day it belongs to.
 
         Only for repairing a daily series that's missing a session it should have (see
@@ -82,7 +110,7 @@ class YFinanceProvider(PriceProvider):
         except Exception:
             return None
 
-    def get_history(self, symbol: str, start: date, end: date) -> dict[date, float]:
+    def get_history(self, symbol: str, start: date, end: date) -> dict[date, Decimal]:
         import yfinance as yf
 
         try:
@@ -95,14 +123,54 @@ class YFinanceProvider(PriceProvider):
             # price cache — a cached NaN would poison every valuation that forward-fills
             # from it. Callers forward-fill over the gap instead.
             return {
-                ts.date(): float(close)
+                ts.date(): to_price(close)
                 for ts, close in hist["Close"].items()
                 if close is not None and close == close  # NaN != NaN
             }
         except Exception:
             return {}
 
-    def get_last_settled_close(self, symbol: str) -> tuple[date, float] | None:
+    def get_intraday(self, symbol: str) -> list[tuple[datetime, Decimal]]:
+        """Yahoo's 15-minute bars for the most recent trading session (the last five days are
+        asked for, so a weekend or a holiday still finds the last session that traded)."""
+        import yfinance as yf
+
+        try:
+            hist = yf.Ticker(symbol).history(period="5d", interval="15m")
+            if hist.empty:
+                return []
+            rows = [
+                (ts.to_pydatetime(), to_price(close))
+                for ts, close in hist["Close"].items()
+                if close is not None and close == close  # NaN != NaN
+            ]
+            if not rows:
+                return []
+            # The exchange's own calendar day, which is what the timestamps carry.
+            last_day = rows[-1][0].date()
+            return [(ts, price) for ts, price in rows if ts.date() == last_day]
+        except Exception:
+            return []
+
+    def get_quote(self, symbol: str) -> Quote | None:
+        """Yahoo's quote snapshot: the last trade and its timestamp, read off the chart metadata
+        (one small request per symbol). Most European listings are about 15 minutes delayed."""
+        import yfinance as yf
+
+        try:
+            meta = yf.Ticker(symbol).history_metadata
+            price = meta.get("regularMarketPrice")
+            stamped_at = meta.get("regularMarketTime")
+            if price is None or stamped_at is None:
+                return None
+            stamped_at = self._exchange_local(stamped_at, meta.get("gmtoffset"))
+            if stamped_at is None:
+                return None
+            return Quote(price=to_price(price), quoted_at=stamped_at)
+        except Exception:
+            return None
+
+    def get_last_settled_close(self, symbol: str) -> tuple[date, Decimal] | None:
         """Yahoo's quote snapshot, used to repair gaps in its own daily series.
 
         Yahoo intermittently publishes a *null* close in the daily feed for a session that
@@ -114,26 +182,15 @@ class YFinanceProvider(PriceProvider):
         Returns None while that timestamp is in today's session: an in-progress price is not a
         close, and this app stores daily closes only.
         """
-        import yfinance as yf
-
-        try:
-            meta = yf.Ticker(symbol).history_metadata
-            price = meta.get("regularMarketPrice")
-            stamped_at = meta.get("regularMarketTime")
-            if price is None or stamped_at is None:
-                return None
-
-            stamped_at = self._exchange_local(stamped_at, meta.get("gmtoffset"))
-            if stamped_at is None:
-                return None
-            # "Today" on the exchange's own clock, not ours — a New York session is still open
-            # well after midnight in Amsterdam.
-            if stamped_at.date() >= datetime.now(stamped_at.tzinfo).date():
-                return None
-
-            return stamped_at.date(), float(price)
-        except Exception:
+        quote = self.get_quote(symbol)
+        if quote is None:
             return None
+        stamped_at = quote.quoted_at
+        # "Today" on the exchange's own clock, not ours — a New York session is still open
+        # well after midnight in Amsterdam.
+        if stamped_at.date() >= datetime.now(stamped_at.tzinfo).date():
+            return None
+        return stamped_at.date(), quote.price
 
     @staticmethod
     def _exchange_local(stamped_at, gmt_offset_seconds) -> datetime | None:

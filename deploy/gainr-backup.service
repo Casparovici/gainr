@@ -6,3 +6,19 @@ Type=oneshot
 WorkingDirectory=/opt/gainr/backend
 ExecStart=/opt/gainr/backend/venv/bin/python -m scripts.backup_db
 EnvironmentFile=-/etc/gainr-backup.env
+
+# Same user and sandbox as gainr.service, so files the database creates (its -wal and -shm) are
+# always the app's to open.
+User=gainr
+Group=gainr
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/gainr/backend
+CacheDirectory=gainr
+Environment=XDG_CACHE_HOME=/var/cache/gainr
+# rclone's Google Drive token, which rclone rewrites when it refreshes it, so it lives in the
+# state directory systemd gives gainr (/var/lib/gainr) rather than in root's home.
+StateDirectory=gainr
+Environment=RCLONE_CONFIG=/var/lib/gainr/rclone.conf

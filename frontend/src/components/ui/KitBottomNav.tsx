@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 
 import { isNavItemActive, type ModuleNavItem } from "../../config/moduleNav";
+import { t } from "../../i18n";
 
 /** The page kit's bottom bar on a phone (gardnr, listr): white, 80px tall, a 64x32 soft pill in
  * the module's brand colour behind the active item. `badges` puts a count on an item (keyed by
@@ -35,7 +36,7 @@ export default function KitBottomNav({
             <span className={`flex h-8 w-16 items-center justify-center rounded-full ${active ? "bg-ui-brand-soft" : ""}`}>
               <Icon size={22} />
             </span>
-            <span className={`truncate text-xs ${active ? "font-semibold" : "font-medium"}`}>{item.shortLabel ?? item.label}</span>
+            <span className={`truncate text-xs ${active ? "font-semibold" : "font-medium"}`}>{t(item.shortLabel ?? item.label)}</span>
             {badge && badge.count > 0 && (
               <span
                 className="absolute left-[calc(50%+12px)] top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-[9px] bg-ui-late px-1 text-[11px] font-bold text-white"

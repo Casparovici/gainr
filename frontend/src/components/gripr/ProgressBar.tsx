@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /** Spend-vs-budget (or received-vs-target, for an income category) bar on every Budget tile,
  * a category's or a savings goal's. Which direction counts as "bad" flips by kind: spending
  * past a cap is bad, receiving less than a target is bad — receiving *more* than an income
@@ -18,7 +19,7 @@ export default function ProgressBar({
     // made a tile with no budget set render a hair taller than one with a budget.
     return (
       <div className="flex items-center">
-        <span className="text-xs text-on-surface-variant">no {kind === "income" ? "target" : "budget"} set</span>
+        <span className="text-xs text-on-surface-variant">{kind === "income" ? t("no target set") : t("no budget set")}</span>
       </div>
     );
   }

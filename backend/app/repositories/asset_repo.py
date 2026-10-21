@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.asset import Asset, DltJudgment
@@ -23,6 +23,18 @@ def get_assets_by_ids(db: Session, asset_ids: list[int]) -> dict[int, Asset]:
 
 def get_by_ticker(db: Session, ticker: str) -> Asset | None:
     return db.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
+
+
+def get_by_symbol(db: Session, symbol: str) -> Asset | None:
+    """The asset an outside source means by `symbol`: its ticker here, or else its Yahoo symbol
+    (what briefr's agents are given next to the ticker), ignoring case. None when it names no
+    asset, or more than one by Yahoo symbol."""
+    folded = symbol.strip().upper()
+    by_ticker = db.execute(select(Asset).where(func.upper(Asset.ticker) == folded)).scalars().first()
+    if by_ticker is not None:
+        return by_ticker
+    rows = db.execute(select(Asset).where(func.upper(Asset.yahoo_symbol) == folded)).scalars().all()
+    return rows[0] if len(rows) == 1 else None
 
 
 def create_asset(db: Session, **fields) -> Asset:

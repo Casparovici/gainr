@@ -7,30 +7,32 @@ import type { GriprCategory, GriprRecurrenceFrequency, GriprRecurring, GriprRecu
 import AccountBadge from "../../components/gripr/AccountBadge";
 import GriprButton from "../../components/gripr/GriprButton";
 import { ModuleTopRow, PageTitle } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
 import RecurringForm from "../../components/gripr/RecurringForm";
 import { useConfirmDialog } from "../../components/gripr/useConfirmDialog";
 import MobileFab from "../../components/MobileFab";
 import { buildCategoryColorMap } from "../../utils/categoryColor";
 import { formatDate, formatEur, pnlColorClass } from "../../utils/format";
-import { GRIPR_TYPE_BADGE, GRIPR_TYPE_OPTIONS, griprSignedAmount } from "../../utils/griprTransactionType";
+import { GRIPR_TYPE_BADGE, GRIPR_TYPE_OPTIONS, griprSignedAmount, griprTypeLabel } from "../../utils/griprTransactionType";
+import { msg, t } from "../../i18n";
 
 const selectClass =
   "rounded-md border border-outline px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
 const FREQUENCY_LABEL: Record<GriprRecurrenceFrequency, string> = {
-  weekly: "Weekly",
-  monthly: "Monthly",
-  yearly: "Yearly",
+  weekly: msg("Weekly"),
+  monthly: msg("Monthly"),
+  yearly: msg("Yearly"),
 };
 
-const FREQUENCY_UNIT: Record<GriprRecurrenceFrequency, string> = {
-  weekly: "weeks",
-  monthly: "months",
-  yearly: "years",
+const FREQUENCY_EVERY: Record<GriprRecurrenceFrequency, string> = {
+  weekly: msg("Every {n} weeks"),
+  monthly: msg("Every {n} months"),
+  yearly: msg("Every {n} years"),
 };
 
 function frequencyLabel(r: GriprRecurring): string {
-  return r.interval > 1 ? `Every ${r.interval} ${FREQUENCY_UNIT[r.frequency]}` : FREQUENCY_LABEL[r.frequency];
+  return r.interval > 1 ? t(FREQUENCY_EVERY[r.frequency], { n: r.interval }) : t(FREQUENCY_LABEL[r.frequency]);
 }
 
 /** The overview only ever shows the top-level category, whether a rule is tagged at the top
@@ -115,34 +117,28 @@ export default function GriprRecurring() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow>
         {/* On mobile this is the FAB's job instead (MobileFab, below), like every other page's add action. */}
-        <GriprButton onClick={() => setEditing(undefined)} className="hidden sm:inline-flex">
-          Add recurring
-        </GriprButton>
+        <GriprButton onClick={() => setEditing(undefined)} className="hidden sm:inline-flex">{t("Add recurring")}</GriprButton>
       </ModuleTopRow>
-      <PageTitle>Recurring</PageTitle>
+      <PageTitle>{t("Recurring")}</PageTitle>
 
-      <p className="text-sm text-on-surface-variant">
-        Subscriptions, salary, mortgage payments — anything on a schedule. Its next occurrence is booked into
-        Transactions once it's within 2 days out so you can review or adjust it before it happens, but it won't
-        count toward any balance, budget, or overview total until its own date arrives.
-      </p>
+      <p className="text-sm text-on-surface-variant">{t("Subscriptions, salary, mortgage payments — anything on a schedule. Its next occurrence is booked into Transactions once it's within 2 days out so you can review or adjust it before it happens, but it won't count toward any balance, budget, or overview total until its own date arrives.")}</p>
 
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-outline-variant bg-surface p-3">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium uppercase tracking-wide text-on-surface-variant">Type</span>
+          <span className="font-medium uppercase tracking-wide text-on-surface-variant">{t("Type")}</span>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as GriprTransactionType | "")} className={selectClass}>
-            <option value="">All</option>
+            <option value="">{t("All")}</option>
             {GRIPR_TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {t(o.label)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium uppercase tracking-wide text-on-surface-variant">Category</span>
+          <span className="font-medium uppercase tracking-wide text-on-surface-variant">{t("Category")}</span>
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={selectClass}>
-            <option value="">All</option>
+            <option value="">{t("All")}</option>
             {categoryOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -162,28 +158,30 @@ export default function GriprRecurring() {
           <table className="w-full whitespace-nowrap text-sm">
             <thead>
               <tr className="border-b border-outline-variant text-left text-xs uppercase tracking-wide text-on-surface-variant">
-                <th className="pinned-col px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Category</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium">Account</th>
-                <th className="px-4 py-2 font-medium">Frequency</th>
-                <th className="px-4 py-2 font-medium">Next due</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
+                <th className="pinned-col px-4 py-2 font-medium">{t("Name")}</th>
+                <th className="px-4 py-2 font-medium">{t("Category")}</th>
+                <th className="px-4 py-2 font-medium">{t("Type")}</th>
+                <th className="px-4 py-2 font-medium">{t("Account")}</th>
+                <th className="px-4 py-2 font-medium">{t("Frequency")}</th>
+                <th className="px-4 py-2 font-medium">{t("Next due")}</th>
+                <th className="px-4 py-2 text-right font-medium">{t("Amount")}</th>
                 <th className="px-4 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {recurringQuery.isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-on-surface-variant">
-                    Loading…
+                  <td colSpan={8} className="px-4 py-6 text-center text-on-surface-variant">{t("Loading…")}</td>
+                </tr>
+              ) : recurringQuery.isError ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center">
+                    <QueryError message={t("Couldn't load recurring transactions.")} onRetry={() => recurringQuery.refetch()} />
                   </td>
                 </tr>
               ) : rules.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-on-surface-variant">
-                    No recurring transactions yet
-                  </td>
+                  <td colSpan={8} className="px-4 py-6 text-center text-on-surface-variant">{t("No recurring transactions yet")}</td>
                 </tr>
               ) : (
                 rules.map((r) => {
@@ -207,8 +205,8 @@ export default function GriprRecurring() {
                       )}
                     </td>
                     <td className="px-4 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${GRIPR_TYPE_BADGE[r.type]}`}>
-                        {r.type}
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${GRIPR_TYPE_BADGE[r.type]}`}>
+                        {griprTypeLabel(r.type)}
                       </span>
                     </td>
                     <td className="px-4 py-2">
@@ -227,7 +225,7 @@ export default function GriprRecurring() {
                     </td>
                     <td className="px-4 py-2 text-on-surface-variant">{frequencyLabel(r)}</td>
                     <td className="px-4 py-2 whitespace-nowrap text-on-surface-variant">
-                      {r.is_active ? formatDate(r.next_due_date) : "paused"}
+                      {r.is_active ? formatDate(r.next_due_date) : t("paused")}
                     </td>
                     <td className={`px-4 py-2 text-right tabular-nums font-medium ${r.type === "transfer" ? "text-on-surface-variant" : pnlColorClass(griprSignedAmount(r))}`}>
                       {r.type === "transfer" ? formatEur(r.amount) : formatEur(griprSignedAmount(r))}
@@ -237,22 +235,22 @@ export default function GriprRecurring() {
                         onClick={() => toggleActiveMutation.mutate({ id: r.id, is_active: !r.is_active })}
                         className="text-on-surface-variant hover:text-on-surface"
                       >
-                        {r.is_active ? "Pause" : "Resume"}
+                        {r.is_active ? t("Pause") : t("Resume")}
                       </button>
-                      <button onClick={() => setEditing(r)} className="ml-3 text-on-surface-variant hover:text-on-surface" title="Edit" aria-label="Edit">
+                      <button onClick={() => setEditing(r)} className="ml-3 text-on-surface-variant hover:text-on-surface" title={t("Edit")} aria-label={t("Edit")}>
                         <Pencil className="h-4 w-4" strokeWidth={2} />
                       </button>
                       <button
                         onClick={async () => {
                           const ok = await confirm({
-                            title: `Delete "${r.name}"?`,
-                            description: "Transactions it already created stay in your ledger.",
+                            title: t("Delete \"{name}\"?", { name: r.name }),
+                            description: t("Transactions it already created stay in your ledger."),
                           });
                           if (ok) deleteMutation.mutate(r.id);
                         }}
                         className="ml-3 text-error hover:opacity-80"
-                        title="Delete"
-                        aria-label="Delete"
+                        title={t("Delete")}
+                        aria-label={t("Delete")}
                       >
                         <Trash2 className="h-4 w-4" strokeWidth={2} />
                       </button>
@@ -283,7 +281,7 @@ export default function GriprRecurring() {
         />
       )}
 
-      <MobileFab label="Add recurring" onClick={() => setEditing(undefined)} />
+      <MobileFab label={t("Add recurring")} onClick={() => setEditing(undefined)} />
 
       {confirmDialog}
     </div>

@@ -1,7 +1,7 @@
 """A position's Calendar tab (docs/adr/0025): the provider's earnings/dividend dates, filtered
 against today, merged with the user's own events."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 

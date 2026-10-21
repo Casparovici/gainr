@@ -4,3 +4,6 @@ Description=Deploy latest gainr from origin/main
 [Service]
 Type=oneshot
 ExecStart=/opt/gainr/deploy/deploy.sh
+# GAINR_DEPLOY_GITHUB_TOKEN, for the CI gate and the deploy status on GitHub (docs/adr/0042).
+# Optional: without it, deploys go ahead unchecked.
+EnvironmentFile=-/etc/gainr/deploy.env

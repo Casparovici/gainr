@@ -1,21 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { api } from "../api/client";
-import type { PositionNoteLabel } from "../api/types";
+import { NOTR_KEYS, notrApi } from "../api/notrClient";
+import { QueryError } from "./ui/QueryError";
+import { t } from "../i18n";
 
-const LABEL_DOT_FALLBACK = "bg-slate-400";
+const LABEL_DOT_FALLBACK = "bg-ui-muted";
 
-/** Read-only chips for displaying a note's labels (the Journal grid, the Notes tab's list) --
- * distinct from the interactive picker below, which is only for the add/edit form. */
-export function LabelChips({ labels }: { labels: PositionNoteLabel[] }) {
+/** What a chip needs of a label -- a notr label, or the same three fields from anywhere else. */
+interface LabelLike {
+  id: number;
+  name: string;
+  color: string | null;
+}
+
+/** Read-only chips for displaying a note's labels (a card, the Journal, the Notes sections) --
+ * distinct from the interactive picker below, which is only for the note form. */
+export function LabelChips({ labels }: { labels: LabelLike[] }) {
   if (labels.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
       {labels.map((label) => (
         <span
           key={label.id}
-          className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+          className="flex items-center gap-1 rounded-full bg-ui-tile px-2 py-0.5 text-xs text-ui-ink-soft"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${label.color ? "" : LABEL_DOT_FALLBACK}`} style={{ backgroundColor: label.color ?? undefined }} />
           {label.name}
@@ -25,24 +33,22 @@ export function LabelChips({ labels }: { labels: PositionNoteLabel[] }) {
   );
 }
 
-/** Toggleable chips over the global label set (see docs/adr/0016-position-journal.md) plus an
- * inline "+ new label" quick-add, the same get-or-create-by-name shape listr's catalog items
- * and Picnic recipe import already use. Shared between the position detail panel's own note
- * form and the Journal's -- labels are global, not per-position, so both need the identical
- * picker over the identical set. */
+/** Toggleable chips over notr's global label set (docs/adr/0050) plus an inline "+ new label"
+ * quick-add. Labels belong to no position, plant or recipe, so every place a note is written
+ * uses this one picker over the one set. */
 export default function LabelPicker({ selectedIds, onChange }: { selectedIds: number[]; onChange: (ids: number[]) => void }) {
   const queryClient = useQueryClient();
   const [newName, setNewName] = useState("");
 
-  const { data: labels } = useQuery({
-    queryKey: ["position-note-labels"],
-    queryFn: () => api.listPositionNoteLabels(),
+  const { data: labels, isError, refetch } = useQuery({
+    queryKey: NOTR_KEYS.labels,
+    queryFn: () => notrApi.listLabels(),
   });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => api.createPositionNoteLabel(name),
+    mutationFn: (name: string) => notrApi.createLabel(name),
     onSuccess: (label) => {
-      queryClient.invalidateQueries({ queryKey: ["position-note-labels"] });
+      queryClient.invalidateQueries({ queryKey: NOTR_KEYS.labels });
       onChange([...selectedIds, label.id]);
       setNewName("");
     },
@@ -58,6 +64,7 @@ export default function LabelPicker({ selectedIds, onChange }: { selectedIds: nu
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {isError && <QueryError className="text-sm" message={t("Couldn't load labels.")} onRetry={() => refetch()} />}
       {(labels ?? []).map((label) => {
         const selected = selectedIds.includes(label.id);
         return (
@@ -65,8 +72,8 @@ export default function LabelPicker({ selectedIds, onChange }: { selectedIds: nu
             key={label.id}
             type="button"
             onClick={() => toggle(label.id)}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
-              selected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            className={`flex items-center gap-1.5 min-h-8 rounded-full border px-3 py-1 text-sm font-medium ${
+              selected ? "border-ui-brand bg-ui-brand text-white" : "border-ui-line text-ui-ink-soft hover:bg-ui-tile"
             }`}
           >
             <span className={`h-2 w-2 rounded-full ${label.color ? "" : LABEL_DOT_FALLBACK}`} style={{ backgroundColor: label.color ?? undefined }} />
@@ -86,17 +93,15 @@ export default function LabelPicker({ selectedIds, onChange }: { selectedIds: nu
             submitNewLabel();
           }
         }}
-        placeholder="new label…"
-        className="w-24 rounded-l-full border border-r-0 border-dashed border-slate-300 py-1 pl-2.5 text-xs text-slate-500 focus:border-slate-500 focus:outline-none"
+        placeholder={t("new label…")}
+        className="h-8 w-28 rounded-l-full border border-r-0 border-dashed border-ui-line bg-transparent py-1 pl-3 text-sm text-ui-ink focus:border-ui-brand focus:outline-none"
       />
       <button
         type="button"
         onClick={submitNewLabel}
         disabled={!newName.trim() || createMutation.isPending}
-        className="-ml-1.5 rounded-r-full border border-dashed border-slate-300 py-1 pl-1 pr-2.5 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-      >
-        + Add
-      </button>
+        className="-ml-1.5 h-8 rounded-r-full border border-dashed border-ui-line pl-1 pr-3 text-sm text-ui-muted hover:bg-ui-tile disabled:opacity-40"
+      >{t("+ Add")}</button>
     </div>
   );
 }

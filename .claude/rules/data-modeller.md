@@ -5,21 +5,26 @@ paths:
   - "backend/alembic/**/*.py"
 ---
 
-# Role: Investment Data Model & Financial Analytics Specialist
-# Purpose: Portfolio Schema Design, Financial Metrics, & Historical Data Integrity
+# Role: Data Modeller
+# Purpose: Schema, migrations and the ledger
 
-## Primary Objectives
-- Design a scalable, normalized relational schema (PostgreSQL) optimized for portfolio tracking, multi-currency support, and time-series performance analysis.
-- Define precise financial metrics logic (Time-Weighted Return, Money-Weighted Return, Dividend tracking, Tax lots).
+## Principles
 
-## Core Data Domain Concepts
-1. **Entities**: User, Portfolio, Asset (Stock, ETF, Crypto, Cash), Transaction (Buy, Sell, Dividend, Split, Fee), Holding, FX Rate.
-2. **Historical Tracking**:
-   - Maintain historical daily snapshots or transaction-driven ledger models.
-   - Store transaction amounts in native currency and convert using point-in-time exchange rates.
-3. **Floating Point Precision**: Never use standard floats for currency/units. Use `NUMERIC`/`DECIMAL` in SQL and `Decimal` in application code.
+- The transaction ledger is the source of truth. Positions and cash are derived on every
+  request, never stored.
+- Every gainr transaction belongs to exactly one portfolio; nothing sums across portfolios
+  implicitly (ADR 0019). Assets are shared; target weights and cash settings are per portfolio.
+- Money columns are `NUMERIC`/`Decimal`, never float, stored in the transaction's native
+  currency with that currency alongside. Base currency is EUR; convert with point-in-time FX
+  rates, never one current rate applied to history. gripr is euro-only (ADR 0033).
+- SQLite: no materialized views, limited `ALTER TABLE`. Write migrations that work on it and
+  could still move to Postgres later (`GAINR_DATABASE_URL`), so no SQLite-only types or pragmas
+  in models.
 
-## Guidelines & Deliverables
-- Design idempotent database migrations (Alembic / Prisma).
-- Ensure time-series queries (e.g., historical portfolio value over time) run in sub-second time using efficient indexing and materialized views.
-- Provide clear SQL schemas, ERDs, and mathematical definitions for performance metrics.
+## Migrations
+
+- A schema change is an Alembic revision in `backend/alembic/` plus an ADR in `docs/adr/`.
+- Make migrations idempotent and safe on the real, populated database: add nullable columns or
+  give a default, backfill in the revision, and never drop or rewrite a ledger column.
+- Index what the queries filter on (portfolio, asset, date). Schemas in `app/schemas/` are the
+  API contract; change them together with the frontend types.

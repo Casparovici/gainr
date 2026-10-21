@@ -29,12 +29,14 @@ touches matching files — this file holds only what should be true in every ses
 | `data-modeller` | models, schemas, migrations |
 | `frontend-engineer` | `frontend/src/**/*.{ts,tsx}` |
 | `ux-designer` | `frontend/src/**/*.{ts,tsx}` |
-| `security-engineer` | routers, price/logo providers, `config.py` |
-| `stock-analyst` | gainr positions/performance/fundamentals — backend or frontend |
-| `personal-finance-specialist` | anything under gripr — backend or frontend |
+| `security-engineer` | routers, `*_provider.py` services, `config.py` |
+| `stock-analyst` | gainr positions/performance/fundamentals files — backend or frontend |
+| `personal-finance-specialist` | gripr files — backend or frontend |
 
 They load on their own — there's no need to invoke them by name, and more than one applies
 to plenty of changes (a new endpoint is both `backend-engineer` and `security-engineer`).
+A rule without a `paths:` frontmatter loads in every session, so give a new rule `paths:`
+unless it really should be always on (only `software-architect` is).
 
 ## Non-negotiables
 
@@ -52,9 +54,10 @@ to plenty of changes (a new endpoint is both `backend-engineer` and `security-en
 ## Commands
 
 ```bash
-# backend (from backend/, with .venv activated)
+# backend (from backend/, with .venv activated; pip install -r requirements-dev.txt for CI's tools)
 source .venv/bin/activate
 pytest                                        # tests
+ruff check .                                  # lint (CI fails on any finding)
 alembic upgrade head                          # migrations
 uvicorn app.main:app --port 8000 --reload     # dev server; --reload matters, routes are
                                               # added often and a stale process 404s them
@@ -75,7 +78,8 @@ npm run test:watch
 - Multiple portfolios (e.g. "Main", "Kids"), switched via a header pill — every gainr endpoint
   that reads/writes ledger data takes a `portfolio_id`. Assets (ticker, price/logo cache) are
   shared across portfolios; target weights and cash settings are per-portfolio. See ADR 0019.
-- Chart ranges: `1D`, `1M`, `YTD`, `1Y`, `Max`. Returns are time-weighted.
+- Chart ranges: `1D`, `1M`, `YTD`, `1Y`, `Max`. The headline return is money-weighted (XIRR, ADR 0051);
+  the chart's line and every benchmark comparison are time-weighted.
 - Benchmark overlays: S&P 500 (`^GSPC`), Nasdaq Composite (`^IXIC`), iShares MSCI World
   (`IWDA.AS`) — in their own currency, so they exclude EUR exchange-rate effects.
 - Per-position: allocation %, average cost (GAK), unrealized and realized P&L, and a detail
@@ -83,6 +87,22 @@ npm run test:watch
   dividend dates from Yahoo, past EPS beat/miss, plus user-entered events).
 - Prices are daily closes from Yahoo Finance, cached in `price_history` and refreshed at most
   once per calendar day per asset.
+
+## Git workflow
+
+- `main` deploys itself: the home server pulls it every 2 minutes. So nothing is committed or
+  pushed to `main` directly, in any session. Work on a short-lived branch (the one the session
+  names, otherwise `<module>/<what>`), commit there and push that branch.
+- Before pushing, run what CI runs: backend `ruff check .` and `pytest` (from `backend/`), and
+  frontend `npm run lint`, `npm test` and `npm run build`. Run the backend suite even for a
+  frontend-only change, so a red `main` is noticed before it is built on. CI also enforces 80%
+  coverage per service module (`*_provider.py` exempt) and a smoke test of the whole app
+  (`.github/scripts/smoke.sh`); the home server deploys a commit only once CI passed on it.
+- Open a pull request only when asked, and merge only when asked. Squash-merge, and only once
+  CI is green on the PR's head: the checks take about 3 minutes, so wait for them instead of
+  merging while they are pending. A red check is fixed or reported, never merged over.
+- A branch whose PR is merged is finished: start the next change from a fresh branch off `main`.
+- Tests never depend on the real date or clock. Pass a fixed `as_of`/date, or patch the clock.
 
 ## Conventions
 

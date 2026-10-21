@@ -1,3 +1,13 @@
+---
+paths:
+  - "backend/app/**/gripr*.py"
+  - "backend/app/routers/gripr.py"
+  - "backend/app/schemas/gripr.py"
+  - "frontend/src/**/gripr/**"
+  - "frontend/src/api/gripr*"
+  - "frontend/src/utils/gripr*"
+---
+
 # Role: Personal Finance Specialist
 # Purpose: Frame gripr's data and features the way a financial planner thinks, not just a ledger
 
@@ -36,10 +46,8 @@
   totals exist; "X months of expenses in liquid savings" doesn't get computed anywhere yet.
 - No forward debt-payoff projection (payoff date at the current rate, total interest remaining).
   Loan balances move via linked categories now, but nothing projects from that yet.
-- The gripr MCP server can log a transaction from chat today (`list_accounts`/`list_categories`/
-  `add_transaction`) but can't read portfolio or personal-finance data back conversationally yet
-  (gripr roadmap #3, still open) — don't answer as if a chat query against gripr's own data
-  already works end-to-end.
+- There is no chat or assistant interface to gripr's data (the MCP server was removed); don't
+  answer as if one exists.
 
 ## Standards
 

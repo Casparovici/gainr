@@ -6,7 +6,9 @@
 import ModuleIndicators from "../ModuleIndicators";
 import type { ReactNode, SVGProps } from "react";
 
+import ModuleSettingsButton from "../ModuleSettingsButton";
 import ModuleSwitcher from "../ModuleSwitcher";
+import { t } from "../../i18n";
 
 // -- Icons: the design's hand-drawn set, on a 24px grid ----------------------------------------
 
@@ -140,21 +142,41 @@ export function StatusChip({ kind, children }: { kind: keyof typeof CHIP_STYLE; 
 
 // -- Page top row -------------------------------------------------------------------------------
 
-/** A page's top row (gardnr, listr): the module switcher pill on a phone (where the shared header is
- * hidden) or `left` in its place (a back link), and the page's actions on the right. */
-export function ModuleTopRow({ left, children }: { left?: ReactNode; children?: ReactNode }) {
+/** A page's top row: the module switcher pill on a phone (where the shared header is hidden) or
+ * `left` in its place (a back link), the page's actions on the right, then the settings gear.
+ * On a wider screen the shared header carries the switcher and the gear, so the row only shows
+ * when the page has actions of its own (`desktop`, by default whenever there are children) --
+ * otherwise it would be an empty strip above the title. It wraps rather than run off a phone's
+ * edge when the actions don't fit beside the pill.
+ * `settings={false}` is for a page that already has the gear elsewhere (gripr's period switcher). */
+export function ModuleTopRow({
+  left,
+  children,
+  settings = true,
+  desktop,
+}: {
+  left?: ReactNode;
+  children?: ReactNode;
+  settings?: boolean;
+  desktop?: boolean;
+}) {
+  const showOnDesktop = desktop ?? (Boolean(children) || Boolean(left));
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${showOnDesktop ? "" : "sm:hidden"}`}>
       {left ?? (
-        <>
-          <div className="flex items-center gap-1 sm:hidden">
-            <ModuleSwitcher variant="pill" />
-            <ModuleIndicators />
-          </div>
-          <span className="hidden sm:block" />
-        </>
+        <div className="flex items-center gap-1 sm:hidden">
+          <ModuleSwitcher variant="pill" />
+          <ModuleIndicators />
+        </div>
       )}
-      <div className="flex items-center gap-2">{children}</div>
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {children}
+        {settings && (
+          <span className="sm:hidden">
+            <ModuleSettingsButton />
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -178,7 +200,7 @@ export function EditBar({ title, onDone }: { title: string; onDone: () => void }
   return (
     <div className="-mx-4 -mt-4 flex items-center justify-between bg-ui-edit-bar px-4 py-3 text-white sm:mx-0 sm:mt-0 sm:rounded-2xl">
       <div className="flex min-w-0 flex-col gap-px">
-        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ui-edit-bar-label">Bewerken</span>
+        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ui-edit-bar-label">{t("Bewerken")}</span>
         <span className="truncate font-display text-xl font-bold tracking-[-0.02em]">{title}</span>
       </div>
       <button
@@ -186,9 +208,7 @@ export function EditBar({ title, onDone }: { title: string; onDone: () => void }
         onClick={onDone}
         className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-[18px] text-[15px] font-semibold text-[#1B1A1F]"
       >
-        <IconCheck size={18} />
-        Klaar
-      </button>
+        <IconCheck size={18} />{t("Klaar")}</button>
     </div>
   );
 }

@@ -1,0 +1,7 @@
+# What CI needs on top of the app's own requirements (pytest is already in requirements.txt).
+-r requirements.txt
+ruff==0.17.1
+pytest-cov==7.1.0
+pip-audit==2.10.1
+# Starlette's TestClient wants httpx2; the app's own providers keep using httpx.
+httpx2==2.14.0

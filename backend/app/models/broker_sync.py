@@ -25,6 +25,9 @@ class BrokerConnection(Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # UTC, naive
     last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
     unmapped: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The gripr account Trading 212's spending cashback is booked into, as income. Unset: cashback
+    # stays part of the weekly deposit in gainr, as it was before the two were told apart.
+    cashback_account_id: Mapped[int | None] = mapped_column(ForeignKey("pefi_accounts.id", ondelete="SET NULL"), nullable=True)
 
 
 class BrokerSyncedItem(Base):

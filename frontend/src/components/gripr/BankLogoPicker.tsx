@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { griprApi } from "../../api/griprClient";
 import BankLogo from "./BankLogo";
+import { QueryError } from "../ui/QueryError";
+import { t } from "../../i18n";
 
 /** A small popover listing the fixed bank/broker catalog (see gripr_bank_logo_service.py) --
  * same interaction shape as ColorPicker: an outside click closes it, and picking (or "None")
@@ -20,7 +22,7 @@ export default function BankLogoPicker({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { data: banks } = useQuery({ queryKey: ["gripr-bank-logos"], queryFn: () => griprApi.listBankLogos() });
+  const { data: banks, isError, refetch } = useQuery({ queryKey: ["gripr-bank-logos"], queryFn: () => griprApi.listBankLogos() });
 
   useEffect(() => {
     if (!open) return;
@@ -41,7 +43,7 @@ export default function BankLogoPicker({
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        title="Set bank/broker icon"
+        title={t("Set bank/broker icon")}
         className="flex items-center justify-center rounded-md text-on-surface-variant/50 hover:text-on-surface-variant"
         style={{ width: size, height: size }}
       >
@@ -52,6 +54,7 @@ export default function BankLogoPicker({
           onClick={(e) => e.stopPropagation()}
           className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-outline-variant bg-surface-container-high p-1.5 shadow-lg"
         >
+          {isError && <QueryError className="px-2 py-1.5 text-sm" message={t("Couldn't load bank icons.")} onRetry={() => refetch()} />}
           {(banks ?? []).map((bank) => (
             <button
               key={bank.key}
@@ -75,9 +78,7 @@ export default function BankLogoPicker({
               setOpen(false);
             }}
             className="mt-1 w-full rounded-md border-t border-outline-variant px-2 py-1.5 pt-2 text-left text-xs text-on-surface-variant hover:text-on-surface"
-          >
-            No icon
-          </button>
+          >{t("No icon")}</button>
         </div>
       )}
     </div>

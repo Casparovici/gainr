@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from typing import Literal
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -46,6 +47,12 @@ class PositionOut(BaseModel):
     cost_basis_eur: Decimal
     current_price_native: Decimal | None
     price_date: date | None  # trading day the price is from (daily closes, refreshed once/day)
+    # Set when the price is the hourly live quote rather than a close: when that trade happened.
+    price_quoted_at: datetime | None = None
+    # The move since yesterday's close, in euros (FX included) and as a share of yesterday's
+    # value. None for the CASH row and for a holding without a close from yesterday or before.
+    day_change_eur: Decimal | None = None
+    day_change_pct: Decimal | None = None
     native_currency: str
     market_value_eur: Decimal | None
     unrealized_pnl_eur: Decimal | None
@@ -96,6 +103,14 @@ class SummaryOut(BaseModel):
     holdings_value_eur: Decimal
     ytd_return_eur: Decimal
     ytd_return_pct: Decimal | None
+    # The headline performance figures are money-weighted (XIRR, docs/adr/0051): what the portfolio
+    # returned on the money actually in it, deposits and their timing included. This year's is
+    # the rate compounded over the year so far; since start is per year once there's a year of
+    # history (`total_mwr_pct` is the whole span, for a younger portfolio). None when there's no
+    # such rate (no flows, one day of history).
+    ytd_mwr_pct: Decimal | None = None
+    total_mwr_pct: Decimal | None = None
+    total_mwr_yearly_pct: Decimal | None = None
     total_return_eur: Decimal
     total_return_pct: Decimal | None
     # Split of where the total return sits today. Unrealized is marked to the latest close on
@@ -105,6 +120,10 @@ class SummaryOut(BaseModel):
     unrealized_pnl_pct: Decimal | None
     realized_pnl_eur: Decimal
     total_invested_eur: Decimal
+    # The portfolio's move since yesterday's close: the 1D range of the performance series, so
+    # time-weighted (a deposit today isn't a gain) and re-priced at the live quotes.
+    day_change_eur: Decimal | None = None
+    day_change_pct: Decimal | None = None
     as_of: date
 
 
@@ -137,4 +156,86 @@ class PerformanceOut(BaseModel):
     end_value_eur: Decimal | None
     change_eur: Decimal | None
     change_pct: Decimal | None
+    # Money-weighted return (XIRR) over the same range: includes the timing of deposits and
+    # withdrawals, which the time-weighted change_pct leaves out on purpose (docs/adr/0041).
+    # None for 1D; the yearly figure only for a range of a year or more.
+    mwr_pct: Decimal | None = None
+    mwr_yearly_pct: Decimal | None = None
     benchmarks: list[BenchmarkSeries] = []
+
+
+# -- dividend income (docs/adr/0041) ---------------------------------------------------------------
+
+
+class DividendMonthOut(BaseModel):
+    month: str  # YYYY-MM
+    received_eur: Decimal
+    # From the last 12 months' payments per share times the shares held now.
+    expected_eur: Decimal
+
+
+class DividendYearOut(BaseModel):
+    year: int
+    total_eur: Decimal
+    months: list[Decimal]  # January..December
+
+
+class DividendHoldingOut(BaseModel):
+    asset_id: int
+    ticker: str
+    name: str
+    is_held: bool
+    received_total_eur: Decimal
+    received_12m_eur: Decimal
+    payments_12m: int
+    expected_12m_eur: Decimal
+    last_paid_on: date | None
+    yield_on_cost_pct: Decimal | None
+    current_yield_pct: Decimal | None
+
+
+class DividendIncomeOut(BaseModel):
+    as_of: date
+    received_this_year_eur: Decimal
+    received_last_year_eur: Decimal
+    received_12m_eur: Decimal
+    expected_12m_eur: Decimal
+    paying_holdings: int
+    # Over every open holding, paying or not: what the portfolio yields as a whole.
+    yield_on_cost_pct: Decimal | None
+    current_yield_pct: Decimal | None
+    months: list[DividendMonthOut]  # the last 12 received, then the next 12 expected
+    years: list[DividendYearOut]  # newest first
+    holdings: list[DividendHoldingOut]
+
+
+# -- rebalance helper (docs/adr/0041) --------------------------------------------------------------
+
+
+class RebalancePurchaseOut(BaseModel):
+    asset_id: int  # 0 = cash
+    ticker: str
+    name: str
+    dlt_judgment: DltJudgment | None  # always Attractive or Neutral, None for cash
+    amount_eur: Decimal
+    quantity: Decimal | None
+    weight_before_pct: Decimal
+    weight_after_pct: Decimal
+    target_pct: Decimal
+
+
+class RebalanceLeftOutOut(BaseModel):
+    """A holding that gets none of the amount: rated Critical, not rated by DLT, or without a
+    target. It still counts towards the total."""
+
+    name: str
+    dlt_judgment: DltJudgment | None
+    reason: Literal["critical", "unrated", "no_target"]
+
+
+class RebalancePlanOut(BaseModel):
+    amount_eur: Decimal
+    from_cash: bool
+    cash_eur: Decimal
+    purchases: list[RebalancePurchaseOut]
+    left_out: list[RebalanceLeftOutOut]

@@ -167,6 +167,7 @@ export interface GriprTransaction {
   expected_from: string | null;
   /** What's still to come back: expected minus refunds so far. "0" when nothing is expected. */
   outstanding: string;
+  attachment_count: number;
 }
 
 /** An expense with money still to come back (docs/adr/0032). */
@@ -195,7 +196,7 @@ export interface GriprTransactionPage {
 
 export type GriprTransactionInput = Omit<
   GriprTransaction,
-  "id" | "account_name" | "counter_account_name" | "category_name" | "is_recurring" | "refunded_amount" | "refund_of" | "outstanding"
+  "id" | "account_name" | "counter_account_name" | "category_name" | "is_recurring" | "refunded_amount" | "refund_of" | "outstanding" | "attachment_count"
 >;
 
 export interface GriprBudgetLine {
@@ -226,6 +227,16 @@ export interface GriprSavingsGoalLine {
   saved: string;
 }
 
+/** What the period's budget leaves for saving and investing (budgeted income minus budgeted
+ * expenses), and how much of that the savings goals already plan. Computed by the server. */
+export interface GriprSavingsRoom {
+  income_budgeted: string;
+  expense_budgeted: string;
+  room: string;
+  goals_budgeted: string;
+  unallocated: string;
+}
+
 export interface GriprSavingsGoalSuggestion extends GriprSuggestionFigures {
   account_id: number;
 }
@@ -240,6 +251,33 @@ export interface GriprCategoryAmount {
   category_id: number;
   name: string;
   amount: string;
+  /** The same category's average over the 3 periods before, and this period against it. Null
+   * where there's nothing to compare with (and on the subcategory breakdown). */
+  average?: string | null;
+  change_pct?: string | null;
+}
+
+export interface GriprCategoryComparison {
+  spent: string;
+  average: string | null;
+  change_pct: string | null;
+  periods: number;
+  /** The period is still running: compared with the same point in the earlier periods. */
+  so_far: boolean;
+}
+
+export type GriprBulkAction = "set_category" | "set_account" | "delete";
+
+export interface GriprBulkResult {
+  updated: number;
+  /** Rows the action couldn't apply to (a transfer can't take a category, ...). */
+  skipped: number;
+}
+
+/** Other uncategorised transactions from the same counterparty as a bank-synced one. */
+export interface GriprSimilar {
+  counterparty: string | null;
+  count: number;
 }
 
 /** Net money that went into investments, savings and reservations (virtual pots) in a period. */
@@ -250,8 +288,32 @@ export interface GriprPutAsidePoint {
   reservations: string;
 }
 
+export interface GriprSavingsHealth {
+  /** (income - spending) / income for the selected period; provisional while it is running. */
+  savings_rate_pct: string | null;
+  /** The same over the three completed periods before it. */
+  trailing_rate_pct: string | null;
+  /** Checking and savings today, leaving out the reservations. */
+  liquid_savings: string;
+  /** The typical (median) spend of the last three completed periods. */
+  average_monthly_expense: string | null;
+  runway_months: string | null;
+}
+
+export interface GriprBudgetAttention {
+  category_id: number;
+  category_name: string;
+  kind: "over_streak" | "under_streak";
+  periods: number;
+  budgeted: string;
+  average_spent: string;
+  suggested_budget: string;
+}
+
 export interface GriprOverview {
   net_worth: string;
+  savings_health: GriprSavingsHealth;
+  budget_attention: GriprBudgetAttention[];
   money_put_aside: GriprPutAsidePoint[];
   income_vs_expense: GriprMonthTotal[];
   spending_by_category: GriprCategoryAmount[];
@@ -261,6 +323,25 @@ export interface GriprOverview {
 export interface GriprCategoryTrendPoint {
   month: string;
   amount: string;
+}
+
+export interface GriprBalanceForecastPoint {
+  date: string;
+  balance: string;
+  is_forecast: boolean;
+}
+
+export interface GriprBalanceForecast {
+  points: GriprBalanceForecastPoint[];
+  /** Where the period ends, and the lowest the balance gets from today on. */
+  expected_end: string | null;
+  lowest: GriprBalanceForecastPoint | null;
+  /** A week of everyday spending kept back, and what could leave the account today without
+   * the forecast ever dipping into it. */
+  buffer: string;
+  safe_to_move: string | null;
+  /** Whether the remaining spending follows the reader's own weekday pattern (else even). */
+  weekday_pattern: boolean;
 }
 
 export type GriprRecurrenceFrequency = "weekly" | "monthly" | "yearly";
@@ -283,6 +364,8 @@ export interface GriprRecurring {
   account_name: string | null;
   counter_account_name: string | null;
   category_name: string | null;
+  /** Only on a transfer: the assets it is the depreciation of (docs/adr/0034). */
+  depreciations: { account_id: number; account_name: string | null; amount: string }[];
 }
 
 /** A recurring rule's occurrence that isn't booked yet -- a projection, not a transaction. */
@@ -307,5 +390,30 @@ export interface GriprUpcomingRecurring {
 
 export type GriprRecurringInput = Omit<
   GriprRecurring,
-  "id" | "next_due_date" | "is_active" | "account_name" | "counter_account_name" | "category_name"
->;
+  "id" | "next_due_date" | "is_active" | "account_name" | "counter_account_name" | "category_name" | "depreciations"
+> & { depreciations?: { account_id: number; amount: string }[] };
+
+/** The assets a recurring transfer depreciates, and the accounts those transfers fill. */
+export interface GriprDepreciatingAsset {
+  account_id: number;
+  name: string;
+  value: string;
+  monthly: string;
+  /** Whole months until its value reaches zero at this pace. */
+  months_left: number | null;
+}
+
+export interface GriprDepreciationFund {
+  account_id: number;
+  name: string;
+  balance: string;
+  assets_value: string;
+  monthly: string;
+  /** The fund's balance as a percentage of the value depreciating into it. */
+  covers_pct: string | null;
+}
+
+export interface GriprDepreciationOverview {
+  assets: GriprDepreciatingAsset[];
+  funds: GriprDepreciationFund[];
+}

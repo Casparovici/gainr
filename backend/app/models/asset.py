@@ -1,8 +1,9 @@
 import enum
 from datetime import date as date_
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum, Numeric, String, Text
+from sqlalchemy import Date, DateTime, Enum, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -48,6 +49,13 @@ class Asset(Base):
     # Last calendar date we asked the provider for a fresh price — gates fetching to at most
     # once/day regardless of how many times positions are viewed that day.
     price_checked_at: Mapped[date_ | None] = mapped_column(Date, nullable=True)
+    # The hourly live quote (docs/adr/0047): the latest traded price, in the asset's own
+    # currency units like a close, and when that trade happened (UTC). Kept apart from
+    # `price_history` on purpose -- an intraday price is not a close, and returns are built
+    # from closes only. `quote_checked_at` (UTC) gates fetching to at most once an hour.
+    quote_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    quoted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    quote_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Same idea for the brand logo, which is resolved lazily and often simply doesn't exist
     # (crypto pairs, delisted tickers). Without this, every asset with no findable icon would
     # re-trigger a provider lookup on every Home page render.
@@ -60,4 +68,4 @@ class Asset(Base):
     price_history = relationship("PriceHistory", back_populates="asset")
     logo = relationship("AssetLogo", back_populates="asset", uselist=False)
     snapshots = relationship("AssetSnapshot", back_populates="asset")
-    position_notes = relationship("PositionNote", secondary="position_note_assets", back_populates="assets")
+    notr_notes = relationship("NotrNote", secondary="notr_note_assets", back_populates="assets")

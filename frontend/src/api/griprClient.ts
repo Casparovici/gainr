@@ -1,22 +1,31 @@
-import type { AppNotification } from "./types";
+import { uploadAll } from "../utils/attachments";
+import type { AppNotification, AttachmentSource, TransactionAttachment } from "./types";
 import type {
   GriprAccount,
+  GriprBalanceForecast,
   GriprBankStatus,
   GriprBankSyncResult,
   GriprBankLogo,
   GriprBudgetLine,
   GriprBudgetSuggestion,
   GriprCategory,
+  GriprBulkAction,
+  GriprBulkResult,
+  GriprCategoryAmount,
+  GriprCategoryComparison,
   GriprCategoryTrendPoint,
   GriprOverview,
   GriprPortfolioLink,
+  GriprDepreciationOverview,
   GriprReceivables,
   GriprRecurring,
   GriprRecurringInput,
   GriprUpcomingRecurring,
   GriprSavingsGoalLine,
   GriprSavingsGoalSuggestion,
+  GriprSavingsRoom,
   GriprSettings,
+  GriprSimilar,
   GriprTransaction,
   GriprTransactionInput,
   GriprTransactionPage,
@@ -106,6 +115,8 @@ export const griprApi = {
     amountMax?: string;
     /** Only expenses/income/refunds still without a category -- what the bank sync leaves to file. */
     uncategorized?: boolean;
+    /** Free text: notes, category or account name, or an amount. */
+    search?: string;
   }) => {
     const q = new URLSearchParams();
     if (params.offset !== undefined) q.set("offset", String(params.offset));
@@ -120,6 +131,7 @@ export const griprApi = {
     if (params.amountMin) q.set("amount_min", params.amountMin);
     if (params.amountMax) q.set("amount_max", params.amountMax);
     if (params.uncategorized) q.set("uncategorized", "true");
+    if (params.search) q.set("q", params.search);
     return request<GriprTransactionPage>(`/gripr/transactions?${q.toString()}`);
   },
   createTransaction: (input: GriprTransactionInput) =>
@@ -127,6 +139,38 @@ export const griprApi = {
   updateTransaction: (id: number, input: Partial<GriprTransactionInput>) =>
     request<GriprTransaction>(`/gripr/transactions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteTransaction: (id: number) => request<void>(`/gripr/transactions/${id}`, { method: "DELETE" }),
+  bulkTransactions: (ids: number[], action: GriprBulkAction, target: { categoryId?: number; accountId?: number } = {}) =>
+    request<GriprBulkResult>("/gripr/transactions/bulk", {
+      method: "POST",
+      body: JSON.stringify({ transaction_ids: ids, action, category_id: target.categoryId, account_id: target.accountId }),
+    }),
+  similarUncategorised: (id: number) => request<GriprSimilar>(`/gripr/transactions/${id}/similar`),
+  applyCategoryToSimilar: (id: number) =>
+    request<{ updated: number }>(`/gripr/transactions/${id}/apply-to-similar`, { method: "POST" }),
+
+  // -- a transaction's attachments (invoices, receipts): gainr's twin, see api/client.ts.
+  transactionAttachments: {
+    key: "gripr",
+    invalidates: [["gripr-transactions"]],
+    list: (transactionId: number) => request<TransactionAttachment[]>(`/gripr/transactions/${transactionId}/attachments`),
+    upload: (transactionId: number, file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return fetch(`/api/gripr/transactions/${transactionId}/attachments`, { method: "POST", body }).then(async (res) => {
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => "")}`);
+        return res.json() as Promise<TransactionAttachment>;
+      });
+    },
+    remove: (transactionId: number, attachmentId: number) =>
+      request<void>(`/gripr/transactions/${transactionId}/attachments/${attachmentId}`, { method: "DELETE" }),
+    url: (transactionId: number, attachmentId: number) =>
+      `/api/gripr/transactions/${transactionId}/attachments/${attachmentId}`,
+  } satisfies AttachmentSource,
+  createTransactionWithAttachments: async (input: GriprTransactionInput, files: File[]) => {
+    const transaction = await griprApi.createTransaction(input);
+    return { transaction, failed: await uploadAll(griprApi.transactionAttachments, transaction.id, files) };
+  },
+  getDepreciation: () => request<GriprDepreciationOverview>("/gripr/depreciation"),
   listReceivables: () => request<GriprReceivables>("/gripr/receivables"),
   listNotifications: (since: string | null) =>
     request<AppNotification[]>(`/gripr/notifications${since ? `?since=${encodeURIComponent(since)}` : ""}`),
@@ -148,6 +192,7 @@ export const griprApi = {
       method: "PUT",
       body: JSON.stringify({ account_id: accountId, month, amount }),
     }),
+  getSavingsRoom: (month: string) => request<GriprSavingsRoom>(`/gripr/savings-goals/room?month=${month}`),
   getSavingsGoalSuggestions: (month: string) =>
     request<GriprSavingsGoalSuggestion[]>(`/gripr/savings-goals/suggestions?month=${month}`),
 
@@ -161,6 +206,17 @@ export const griprApi = {
     if (month) q.set("month", month);
     return request<GriprCategoryTrendPoint[]>(`/gripr/overview/category-trend?${q.toString()}`);
   },
+  getSubcategoryBreakdown: (categoryId: number, month?: string) => {
+    const q = new URLSearchParams({ category_id: String(categoryId) });
+    if (month) q.set("month", month);
+    return request<GriprCategoryAmount[]>(`/gripr/overview/subcategories?${q.toString()}`);
+  },
+  getCategoryComparison: (categoryId: number, month?: string) => {
+    const q = new URLSearchParams({ category_id: String(categoryId) });
+    if (month) q.set("month", month);
+    return request<GriprCategoryComparison>(`/gripr/overview/category-comparison?${q.toString()}`);
+  },
+  getBalanceForecast: () => request<GriprBalanceForecast>("/gripr/overview/balance-forecast"),
 
   listRecurring: (includeInactive = true) =>
     request<GriprRecurring[]>(`/gripr/recurring?include_inactive=${includeInactive}`),

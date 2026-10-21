@@ -1,14 +1,19 @@
-// Module logos for gainr / gripr / listr / gardnr -- from the brand kit in frontend/design/.
+// Module logos for gainr / gripr / listr / gardnr / trainr / taskr / briefr / notr -- from the brand kit in frontend/design/.
 // Glyphs are drawn on a 48x48 grid, white stroke on a coloured tile.
 import type { ReactElement, SVGProps } from "react";
+import { msg } from "../i18n";
 
-export type ModuleKey = "gainr" | "gripr" | "listr" | "gardnr";
+export type ModuleKey = "gainr" | "gripr" | "listr" | "gardnr" | "trainr" | "taskr" | "briefr" | "notr";
 
 export const MODULE_BRAND: Record<ModuleKey, { color: string; colorDark: string; label: string }> = {
-  gainr: { color: "#3F3AC4", colorDark: "#9D9AF2", label: "Beleggingsportefeuille" },
-  gripr: { color: "#B7790A", colorDark: "#EDB94A", label: "Persoonlijke financiën" },
-  listr: { color: "#D4502A", colorDark: "#F08A66", label: "Boodschappen & recepten" },
-  gardnr: { color: "#2F7D3A", colorDark: "#7FC486", label: "Tuin & verzorging" },
+  gainr: { color: "#3F3AC4", colorDark: "#9D9AF2", label: msg("Beleggingsportefeuille") },
+  gripr: { color: "#B7790A", colorDark: "#EDB94A", label: msg("Persoonlijke financiën") },
+  listr: { color: "#D4502A", colorDark: "#F08A66", label: msg("Boodschappen & recepten") },
+  gardnr: { color: "#2F7D3A", colorDark: "#7FC486", label: msg("Tuin & verzorging") },
+  trainr: { color: "#1769AA", colorDark: "#7DB8E8", label: msg("Sport & training") },
+  taskr: { color: "#A3307A", colorDark: "#EFA2D2", label: msg("Agenda over alle modules") },
+  briefr: { color: "#0B7A75", colorDark: "#6FD3CB", label: msg("Rapporten van je agents") },
+  notr: { color: "#5E7F12", colorDark: "#B7D86A", label: msg("Notities en ideeën") },
 };
 
 export function isModuleKey(key: string): key is ModuleKey {
@@ -45,6 +50,42 @@ const GLYPHS: Record<ModuleKey, ReactElement> = {
       <path d="M24 28 C15 28 11 22 12 16 C19 16 24 20 24 28 Z" fill="currentColor" />
       <path d="M24 23 C24 16 29 11 36 12 C36 19 31 23 24 23 Z" fill="none" />
       <line x1="15" y1="37" x2="33" y2="37" />
+    </>
+  ),
+  trainr: (
+    <>
+      <line x1="16" y1="24" x2="32" y2="24" />
+      <line x1="16" y1="14" x2="16" y2="34" />
+      <line x1="32" y1="14" x2="32" y2="34" />
+      <line x1="10" y1="19" x2="10" y2="29" />
+      <line x1="38" y1="19" x2="38" y2="29" />
+    </>
+  ),
+  taskr: (
+    <>
+      <rect x="10" y="12" width="28" height="26" rx="4" fill="none" />
+      <line x1="10" y1="20" x2="38" y2="20" />
+      <line x1="17" y1="8" x2="17" y2="14" />
+      <line x1="31" y1="8" x2="31" y2="14" />
+      <polyline points="17,29 22,33 31,25" fill="none" />
+    </>
+  ),
+  briefr: (
+    <>
+      <path d="M13 11 A3 3 0 0 1 16 8 H28 L35 15 V37 A3 3 0 0 1 32 40 H16 A3 3 0 0 1 13 37 Z" fill="none" />
+      <polyline points="28,8 28,15 35,15" fill="none" />
+      <line x1="19" y1="23" x2="29" y2="23" />
+      <line x1="19" y1="29" x2="29" y2="29" />
+      <line x1="19" y1="35" x2="25" y2="35" />
+    </>
+  ),
+  notr: (
+    <>
+      <rect x="11" y="11" width="26" height="28" rx="4" fill="none" />
+      <line x1="18" y1="7" x2="18" y2="14" />
+      <line x1="30" y1="7" x2="30" y2="14" />
+      <line x1="18" y1="23" x2="30" y2="23" />
+      <line x1="18" y1="30" x2="26" y2="30" />
     </>
   ),
 };
@@ -93,12 +134,12 @@ export function ModuleIcon({
   );
 }
 
-/** Lowercase wordmark; the final "r" carries the module colour. Font: Bricolage Grotesque 700.
+/** Lowercase wordmark; the final "r" carries the module colour. Font: the display face of the chosen font package, bold.
  * The "r" reads `--brand-<module>` (index.css), which the `.dark` class swaps for the lighter
  * variant -- the same ancestor-class dark mode the rest of the app uses, so no theme prop. */
 export function ModuleWordmark({ module, className = "" }: { module: ModuleKey; className?: string }) {
   return (
-    <span className={`font-bold tracking-[-0.02em] ${className}`} style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>
+    <span className={`font-bold tracking-[-0.02em] ${className}`} style={{ fontFamily: "var(--font-display)" }}>
       {module.slice(0, -1)}
       <span style={{ color: `var(--brand-${module})` }}>r</span>
     </span>

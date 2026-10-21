@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { usePortfolio } from "../hooks/usePortfolio";
+import { QueryError } from "./ui/QueryError";
+import { t } from "../i18n";
 
 /** Which gainr portfolio (e.g. "Main", "Kids") Home/Transactions/Journal are scoped to --
  * visually the same collapsed-pill-that-expands-on-click shape as ModuleSwitcher, but it
@@ -12,7 +14,7 @@ import { usePortfolio } from "../hooks/usePortfolio";
  * (where the header holding the default version is hidden). */
 export default function PortfolioSwitcher({ variant = "default" }: { variant?: "default" | "pill" }) {
   const queryClient = useQueryClient();
-  const { portfolios, portfolioId, setPortfolioId, isLoading } = usePortfolio();
+  const { portfolios, portfolioId, setPortfolioId, isLoading, isError, refetch } = usePortfolio();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -45,6 +47,8 @@ export default function PortfolioSwitcher({ variant = "default" }: { variant?: "
   }
 
   if (isLoading) return null;
+  // Without this, a failed request would look like an empty database and offer "+ New portfolio".
+  if (isError) return <QueryError className="text-sm" message={t("Couldn't load portfolios.")} onRetry={refetch} />;
 
   // A brand-new database with no portfolio yet (created straight from Base.metadata, never
   // run through the migration that seeds "Main") still needs a way to create the first one --
@@ -59,9 +63,7 @@ export default function PortfolioSwitcher({ variant = "default" }: { variant?: "
             setAdding(true);
           }}
           className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700"
-        >
-          + New portfolio
-        </button>
+        >{t("+ New portfolio")}</button>
         {open && (
           <div className="absolute left-0 top-full z-30 mt-1 min-w-full overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
             <form onSubmit={handleAdd} className="flex gap-1 px-1 py-1">
@@ -69,15 +71,13 @@ export default function PortfolioSwitcher({ variant = "default" }: { variant?: "
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Portfolio name"
+                placeholder={t("Portfolio name")}
                 className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
               />
               <button
                 type="submit"
                 className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800"
-              >
-                Add
-              </button>
+              >{t("Add")}</button>
             </form>
           </div>
         )}
@@ -131,24 +131,20 @@ export default function PortfolioSwitcher({ variant = "default" }: { variant?: "
                   autoFocus
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Portfolio name"
+                  placeholder={t("Portfolio name")}
                   className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
                 />
                 <button
                   type="submit"
                   className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800"
-                >
-                  Add
-                </button>
+                >{t("Add")}</button>
               </form>
             ) : (
               <button
                 type="button"
                 onClick={() => setAdding(true)}
                 className="block w-full whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              >
-                + New portfolio
-              </button>
+              >{t("+ New portfolio")}</button>
             )}
           </div>
         </div>

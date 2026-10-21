@@ -8,8 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from app.config import CORS_ORIGINS
 from app.db import Base, engine
 from app.routers import (
-    assets, brokers, calendar, fundamentals, gardnr, journal, listr, gripr, performance, portfolios, positions, summary,
-    transactions,
+    assets, briefr, brokers, calendar, fundamentals, gardnr, income, listr, notr, gripr, performance, portfolios, positions,
+    summary,
+    taskr, trainr, transactions,
 )
 
 # Local single-user app: tables are created directly from the models rather than requiring
@@ -31,16 +32,20 @@ app.include_router(portfolios.router)
 app.include_router(summary.router)
 app.include_router(positions.router)
 app.include_router(performance.router)
+app.include_router(income.router)
 app.include_router(transactions.router)
 app.include_router(assets.router)
 app.include_router(brokers.router)
-app.include_router(journal.router)
 app.include_router(fundamentals.router)
 app.include_router(fundamentals.catalog_router)
 app.include_router(calendar.router)
 app.include_router(gripr.router)
 app.include_router(listr.router)
 app.include_router(gardnr.router)
+app.include_router(trainr.router)
+app.include_router(taskr.router)
+app.include_router(briefr.router)
+app.include_router(notr.router)
 
 
 @app.get("/api/health")

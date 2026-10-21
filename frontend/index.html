@@ -8,11 +8,13 @@
     <link rel="apple-touch-icon" href="/brand/gainr-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>gainr</title>
-    <!-- Bricolage Grotesque: the module wordmarks (components/ModuleLogo.tsx) and the page kit's
-         headings. Instrument Sans: the page kit's text (see index.css's page-kit block). -->
+    <!-- The font packages offered in Settings (src/utils/fontPackages.ts). One stylesheet lists
+         every family, but the browser only downloads the files of the faces actually used, so the
+         unselected packages cost the stylesheet and nothing else. Bricolage Grotesque + Instrument
+         Sans is the default: wordmarks and page-kit headings, and the page kit's text. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@600;700&family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
       // Applied before paint so the page never flashes the wrong theme. Mirrors the logic in
       // src/hooks/useTheme.ts — keep the two in sync if the storage key or fallback ever change.
@@ -21,6 +23,12 @@
           var stored = localStorage.getItem("pdt-theme");
           var dark = stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.classList.toggle("dark", dark);
+          // Same for the font package (src/hooks/useFont.ts): no attribute = the default.
+          var font = localStorage.getItem("pdt-font");
+          if (font && font !== "default") document.documentElement.setAttribute("data-font", font);
+          // And the language (src/hooks/useLanguage.tsx): the stored choice, else the browser's.
+          var lang = localStorage.getItem("pdt-language");
+          document.documentElement.lang = lang === "nl" || lang === "en" ? lang : /^nl/i.test(navigator.language) ? "nl" : "en";
         } catch (e) {}
       })();
     </script>

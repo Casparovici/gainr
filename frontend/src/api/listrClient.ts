@@ -2,6 +2,8 @@ import type {
   ListrCategory,
   ListrItem,
   ListrItemInput,
+  ListrLeftover,
+  ListrLeftoverInput,
   ListrList,
   ListrListDetail,
   ListrMealPlanEntry,
@@ -29,6 +31,7 @@ import type {
   ListrRecipe,
   ListrRecipeCategory,
   ListrRecipeInput,
+  ListrStore,
 } from "./listrTypes";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -79,6 +82,16 @@ export const listrApi = {
   ) =>
     request<ListrItem>(`/listr/items/${id}/picnic-mapping`, { method: "PUT", body: JSON.stringify(input) }),
 
+  // -- stores: supermarkets and the order their aisles come in (docs/adr/0052) ---------------
+  listStores: () => request<ListrStore[]>("/listr/stores"),
+  createStore: (input: { name: string; copy_order_from_id?: number | null }) =>
+    request<ListrStore>("/listr/stores", { method: "POST", body: JSON.stringify(input) }),
+  renameStore: (id: number, name: string) =>
+    request<ListrStore>(`/listr/stores/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  setStoreOrder: (id: number, categoryIds: number[]) =>
+    request<ListrStore>(`/listr/stores/${id}/order`, { method: "PUT", body: JSON.stringify({ category_ids: categoryIds }) }),
+  deleteStore: (id: number) => request<void>(`/listr/stores/${id}`, { method: "DELETE" }),
+
   // -- inventory (see docs/adr/0015-listr-inventory.md) --------------------------------------
   listInventory: () => request<ListrItem[]>("/listr/inventory"),
   setItemInventoryTracking: (id: number, tracked: boolean) =>
@@ -95,7 +108,8 @@ export const listrApi = {
   createList: (name: string) =>
     request<ListrList>("/listr/lists", { method: "POST", body: JSON.stringify({ name }) }),
   getList: (id: number) => request<ListrListDetail>(`/listr/lists/${id}`),
-  updateList: (id: number, input: { name?: string; is_archived?: boolean }) =>
+  // `store_id: null` puts the list back on the standard order.
+  updateList: (id: number, input: { name?: string; is_archived?: boolean; store_id?: number | null }) =>
     request<ListrList>(`/listr/lists/${id}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteList: (id: number) => request<void>(`/listr/lists/${id}`, { method: "DELETE" }),
   duplicateList: (id: number, name: string) =>
@@ -126,6 +140,19 @@ export const listrApi = {
   updateRecipe: (id: number, input: Partial<ListrRecipeInput> & { is_archived?: boolean }) =>
     request<ListrRecipe>(`/listr/recipes/${id}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteRecipe: (id: number) => request<void>(`/listr/recipes/${id}`, { method: "DELETE" }),
+  // A recipe's photo is its own multipart action, like gardnr's care-log photos. `request` above
+  // forces a JSON content type, which would break the multipart boundary, hence the bare fetch.
+  setRecipePhoto: async (id: number, file: File): Promise<ListrRecipe> => {
+    const body = new FormData();
+    body.append("photo", file);
+    const res = await fetch(`/api/listr/recipes/${id}/photo`, { method: "PUT", body });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => "")}`);
+    return res.json() as Promise<ListrRecipe>;
+  },
+  deleteRecipePhoto: (id: number) => request<ListrRecipe>(`/listr/recipes/${id}/photo`, { method: "DELETE" }),
+  // `updated_at` changes with every photo change, so it doubles as the cache-buster.
+  recipePhotoUrl: (recipe: Pick<ListrRecipe, "id" | "updated_at">) =>
+    `/api/listr/recipes/${recipe.id}/photo?v=${encodeURIComponent(recipe.updated_at)}`,
   addRecipeToList: (
     recipeId: number,
     input: { list_id?: number; new_list_name?: string; ingredient_ids: number[] },
@@ -147,7 +174,16 @@ export const listrApi = {
     request<ListrMealPlanEntry[]>(`/listr/meal-plan?date_from=${dateFrom}&date_to=${dateTo}`),
   setMealPlanDay: (date: string, input: ListrMealPlanInput) =>
     request<ListrMealPlanEntry>(`/listr/meal-plan/${date}`, { method: "PUT", body: JSON.stringify(input) }),
+  moveMealPlanDay: (date: string, to: string) =>
+    request<ListrMealPlanEntry>(`/listr/meal-plan/${date}/move`, { method: "POST", body: JSON.stringify({ to }) }),
   clearMealPlanDay: (date: string) => request<void>(`/listr/meal-plan/${date}`, { method: "DELETE" }),
+
+  listLeftovers: () => request<ListrLeftover[]>("/listr/leftovers"),
+  createLeftover: (input: ListrLeftoverInput) =>
+    request<ListrLeftover>("/listr/leftovers", { method: "POST", body: JSON.stringify(input) }),
+  adjustLeftoverMeals: (id: number, delta: number) =>
+    request<ListrLeftover>(`/listr/leftovers/${id}/meals`, { method: "POST", body: JSON.stringify({ delta }) }),
+  deleteLeftover: (id: number) => request<void>(`/listr/leftovers/${id}`, { method: "DELETE" }),
   getPopularRecipes: (limit = 10) =>
     request<ListrPopularRecipe[]>(`/listr/meal-plan/popular?limit=${limit}`),
   addMealPlanToList: (input: { dates: string[]; list_id?: number; new_list_name?: string }) =>

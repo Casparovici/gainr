@@ -1,7 +1,7 @@
 # gainr brand assets — module logos
 
-Logos for the four modules of the gainr app: **gainr** (portfolio), **gripr** (personal finance),
-**listr** (groceries & recipes), **gardnr** (garden). One family: a coloured rounded tile, a white
+Logos for the eight modules of the gainr app: **gainr** (portfolio), **gripr** (personal finance),
+**listr** (groceries & recipes), **gardnr** (garden), **trainr** (workouts), **taskr** (agenda), **briefr** (agent reports), **notr** (notes). One family: a coloured rounded tile, a white
 line glyph on a 48×48 grid (round caps/joins, stroke 3.4, or 4.2 at ≤32 px), and a lowercase
 wordmark whose final "r" carries the module colour.
 
@@ -13,6 +13,10 @@ wordmark whose final "r" carries the module colour.
 | gripr  | `#B7790A` | `#EDB94A` | Persoonlijke financiën |
 | listr  | `#D4502A` | `#F08A66` | Boodschappen & recepten |
 | gardnr | `#2F7D3A` | `#7FC486` | Tuin & verzorging |
+| trainr | `#1769AA` | `#7DB8E8` | Sport & training |
+| taskr  | `#A3307A` | `#EFA2D2` | Agenda over alle modules |
+| briefr | `#0B7A75` | `#6FD3CB` | Rapporten van je agents |
+| notr   | `#5E7F12` | `#B7D86A` | Notities en ideeën |
 
 Also in `tokens.json`. Wordmark font: **Bricolage Grotesque 700** (Google Fonts), letter-spacing −0.02em.
 

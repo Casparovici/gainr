@@ -45,10 +45,12 @@ def _synced(db: Session, since: datetime) -> list[Notification]:
     trades = [t for t in rows if t.type in (TT.BUY, TT.SELL)]
     dividends = [t for t in rows if t.type == TT.DIVIDEND]
     deposits = [t for t in rows if t.type == TT.DEPOSIT]
+    interest = [t for t in rows if t.type == TT.INTEREST]
     auto = sum(1 for t in trades if "auto-invest" in (t.notes or ""))
     parts = [
         _plural(len(trades), "buy or sell", "buys and sells") + (f" ({auto} auto-invest)" if auto else "") if trades else None,
         _plural(len(dividends), "dividend", "dividends") if dividends else None,
+        "weekly interest" if interest else None,
         "weekly interest and cashback" if deposits else None,
     ]
     return [Notification(

@@ -1,4 +1,5 @@
 import type { GriprCategoryKind, GriprTransactionType } from "../api/griprTypes";
+import { msg, t as tr } from "../i18n";
 
 /** One place for how each gripr transaction type looks and signs, shared by every list that
  * shows transactions or recurring rules. A refund reuses income's colours: both are money
@@ -11,11 +12,17 @@ export const GRIPR_TYPE_BADGE: Record<GriprTransactionType, string> = {
 };
 
 export const GRIPR_TYPE_OPTIONS: { value: GriprTransactionType; label: string }[] = [
-  { value: "expense", label: "Expense" },
-  { value: "income", label: "Income" },
-  { value: "refund", label: "Refund" },
-  { value: "transfer", label: "Transfer" },
+  { value: "expense", label: msg("Expense") },
+  { value: "income", label: msg("Income") },
+  { value: "refund", label: msg("Refund") },
+  { value: "transfer", label: msg("Transfer") },
 ];
+
+/** A type's label in the current language, e.g. for a badge. */
+export function griprTypeLabel(type: GriprTransactionType): string {
+  const option = GRIPR_TYPE_OPTIONS.find((o) => o.value === type);
+  return option ? tr(option.label) : type;
+}
 
 /** Which category kind a type is filed under -- a refund nets against an expense category.
  * Null for a transfer, which has no category. */

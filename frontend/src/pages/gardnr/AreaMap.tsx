@@ -33,6 +33,7 @@ import {
   zoneRadius,
 } from "../../components/gardnr/ui";
 import { actionLabel, dueText, gardnrDate, todayLocalISO } from "../../utils/gardnr";
+import { msg, t as tr } from "../../i18n";
 
 // A finger jitters more than a mouse, so a touch has to travel further before a tap becomes a move.
 const DRAG_THRESHOLD_PX = { mouse: 4, touch: 10 };
@@ -44,7 +45,7 @@ const SHOW_NAMES_KEY = "gardnr.showNames";
 // Same bounds the old number fields enforced: a bed can span the whole map, a plant marker can't.
 const ZONE_SIZE_RANGE = { min: 2, max: 100 };
 const MARKER_SIZE_RANGE = { min: 2, max: 30 };
-const NEW_ZONE = { name: "Nieuw vak", shape: "rect" as const, color: DEFAULT_ZONE_COLOR, x: "35", y: "35", width: "30", height: "20" };
+const NEW_ZONE = { name: msg("Nieuw vak"), shape: "rect" as const, color: DEFAULT_ZONE_COLOR, x: "35", y: "35", width: "30", height: "20" };
 
 function clampPercent(v: number): number {
   return Math.min(100, Math.max(0, v));
@@ -141,26 +142,24 @@ function PlantSheet({ plant, zoneName, areaId, onOpenDetails }: { plant: GardenP
             {subtitle && <span className="truncate text-[13px] italic text-ui-muted">{subtitle}</span>}
           </div>
         </div>
-        <button type="button" onClick={onOpenDetails} className="flex min-h-11 shrink-0 items-center text-sm font-semibold text-ui-brand-strong hover:text-ui-brand">
-          Details
-        </button>
+        <button type="button" onClick={onOpenDetails} className="flex min-h-11 shrink-0 items-center text-sm font-semibold text-ui-brand-strong hover:text-ui-brand">{tr("Details")}</button>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div className={`flex flex-col gap-0.5 rounded-xl px-3 py-2.5 ${nextTile.box}`}>
-          <span className={`text-xs font-semibold ${nextTile.label}`}>{next ? actionLine(next) : "Volgende"}</span>
-          <span className={`text-sm font-semibold ${nextTile.value}`}>{next ? dueText(next.date).text : "geen schema"}</span>
+          <span className={`text-xs font-semibold ${nextTile.label}`}>{next ? actionLine(next) : tr("Volgende")}</span>
+          <span className={`text-sm font-semibold ${nextTile.value}`}>{next ? dueText(next.date).text : tr("geen schema")}</span>
         </div>
         <div className="flex flex-col gap-0.5 rounded-xl bg-ui-tile px-3 py-2.5">
-          <span className="text-xs font-semibold text-ui-muted">Laatst gedaan</span>
+          <span className="text-xs font-semibold text-ui-muted">{tr("Laatst gedaan")}</span>
           <span className="text-sm font-semibold text-ui-ink">
-            {plant.last_action ? `${actionLine(plant.last_action)} · ${gardnrDate(plant.last_action.date)}` : "nog niets"}
+            {plant.last_action ? `${actionLine(plant.last_action)} · ${gardnrDate(plant.last_action.date)}` : tr("nog niets")}
           </span>
         </div>
       </div>
 
-      {doneMutation.isSuccess && <p className="m-0 text-[13px] text-ui-brand-strong">{actionLine(doneMutation.variables)} geregistreerd voor vandaag.</p>}
-      {doneMutation.isError && <p className="m-0 text-[13px] text-ui-late">Registreren is mislukt — probeer het opnieuw.</p>}
+      {doneMutation.isSuccess && <p className="m-0 text-[13px] text-ui-brand-strong">{actionLine(doneMutation.variables)}{" "}{tr("geregistreerd voor vandaag.")}</p>}
+      {doneMutation.isError && <p className="m-0 text-[13px] text-ui-late">{tr("Registreren is mislukt — probeer het opnieuw.")}</p>}
 
       {next && (
         <button
@@ -172,8 +171,7 @@ function PlantSheet({ plant, zoneName, areaId, onOpenDetails }: { plant: GardenP
           className={due ? primaryButtonClass : `${secondaryButtonClass} h-12`}
         >
           {next.action_type === "water" ? <IconDroplet size={18} /> : <IconCheck size={18} />}
-          {actionLine(next)} gedaan
-        </button>
+          {actionLine(next)}{" "}{tr("gedaan")}</button>
       )}
     </section>
   );
@@ -199,7 +197,7 @@ function PlantHoverCard({ plant, x, y }: { plant: GardenPlantMarker; x: number; 
       <div className="truncate text-sm font-semibold text-ui-ink">{plant.name}</div>
       {plant.species && <div className="italic text-ui-muted">{plant.species}</div>}
       <div className={`mt-1 ${plantDueState(plant) === "late" ? "font-semibold text-ui-late" : "text-ui-ink-soft"}`}>
-        {next ? `${actionLine(next)} · ${dueText(next.date).text}` : "geen schema"}
+        {next ? `${actionLine(next)} · ${dueText(next.date).text}` : tr("geen schema")}
       </div>
     </div>
   );
@@ -215,7 +213,7 @@ function ResizeHandle({ label, onStart }: { label: string; onStart: (e: React.Mo
     <div
       role="presentation"
       data-testid={`resize-${label}`}
-      title="Sleep om het formaat te wijzigen"
+      title={tr("Sleep om het formaat te wijzigen")}
       onMouseDown={onStart}
       onTouchStart={onStart}
       onClick={(e) => e.stopPropagation()}
@@ -295,7 +293,7 @@ function PlantMarker({
           className={`absolute -right-1 -top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-white text-white ${
             due === "late" ? "bg-ui-late" : "bg-ui-today-dot"
           }`}
-          aria-label={due === "late" ? "te laat" : "vandaag"}
+          aria-label={due === "late" ? tr("te laat") : tr("vandaag")}
         >
           {due === "late" ? <IconAlert size={10} strokeWidth={3.5} /> : <IconDroplet size={10} strokeWidth={3} />}
         </span>
@@ -338,11 +336,9 @@ function ZoneEditor({ zone, onDeleted }: { zone: GardenZone; onDeleted: () => vo
   };
 
   return (
-    <section aria-label="Vak bewerken" className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface px-4 py-3.5">
+    <section aria-label={tr("Vak bewerken")} className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface px-4 py-3.5">
       <div className="flex items-end gap-2">
-        <label className="flex flex-grow flex-col gap-1 text-xs font-semibold text-ui-muted">
-          Naam van het vak
-          <input
+        <label className="flex flex-grow flex-col gap-1 text-xs font-semibold text-ui-muted">{tr("Naam van het vak")}<input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -353,9 +349,9 @@ function ZoneEditor({ zone, onDeleted }: { zone: GardenZone; onDeleted: () => vo
         </label>
         <button
           type="button"
-          aria-label="Vak verwijderen"
+          aria-label={tr("Vak verwijderen")}
           onClick={() => {
-            if (confirm(`Vak "${zone.name}" verwijderen? Planten erop blijven staan.`)) deleteMutation.mutate();
+            if (confirm(tr("Vak \"{name}\" verwijderen? Planten erop blijven staan.", { name: zone.name }))) deleteMutation.mutate();
           }}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-ui-late-line bg-ui-surface text-ui-late"
         >
@@ -369,7 +365,7 @@ function ZoneEditor({ zone, onDeleted }: { zone: GardenZone; onDeleted: () => vo
             <button
               key={swatch.color}
               type="button"
-              aria-label={`Kleur ${swatch.label}`}
+              aria-label={tr("Kleur {color}", { color: tr(swatch.label) })}
               aria-pressed={selected}
               onClick={() => updateMutation.mutate({ color: swatch.color })}
               className={`h-9 w-9 rounded-full p-0 ${selected ? "border-[3px] border-ui-brand-strong" : "border border-ui-line"}`}
@@ -378,7 +374,7 @@ function ZoneEditor({ zone, onDeleted }: { zone: GardenZone; onDeleted: () => vo
           );
         })}
       </div>
-      {(updateMutation.isError || deleteMutation.isError) && <p className="m-0 text-sm text-ui-late">Opslaan is mislukt — probeer het opnieuw.</p>}
+      {(updateMutation.isError || deleteMutation.isError) && <p className="m-0 text-sm text-ui-late">{tr("Opslaan is mislukt — probeer het opnieuw.")}</p>}
     </section>
   );
 }
@@ -386,14 +382,12 @@ function ZoneEditor({ zone, onDeleted }: { zone: GardenZone; onDeleted: () => vo
 /** The selected plant in edit mode: a pointer to its size handle and its full details. */
 function PlantEditor({ plant, onOpenDetails }: { plant: GardenPlantMarker; onOpenDetails: () => void }) {
   return (
-    <section aria-label="Plant bewerken" className="flex items-center justify-between gap-3 rounded-[20px] border border-ui-border bg-ui-surface px-4 py-3.5">
+    <section aria-label={tr("Plant bewerken")} className="flex items-center justify-between gap-3 rounded-[20px] border border-ui-border bg-ui-surface px-4 py-3.5">
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate text-[15px] font-bold text-ui-ink">{plant.name}</span>
-        <span className="text-[13px] text-ui-muted">Sleep het hoekje om de marker groter of kleiner te maken.</span>
+        <span className="text-[13px] text-ui-muted">{tr("Sleep het hoekje om de marker groter of kleiner te maken.")}</span>
       </div>
-      <button type="button" onClick={onOpenDetails} className={`${secondaryButtonClass} shrink-0`}>
-        Details
-      </button>
+      <button type="button" onClick={onOpenDetails} className={`${secondaryButtonClass} shrink-0`}>{tr("Details")}</button>
     </section>
   );
 }
@@ -452,7 +446,7 @@ export default function GardnrAreaMap() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["gardnr-area", areaId] });
 
   const createZoneMutation = useMutation({
-    mutationFn: () => gardnrApi.createZone(areaId, NEW_ZONE),
+    mutationFn: () => gardnrApi.createZone(areaId, { ...NEW_ZONE, name: tr(NEW_ZONE.name) }),
     onSuccess: (zone) => {
       invalidate();
       // Straight into its editor, name field first -- "Nieuw vak" is only a placeholder.
@@ -641,21 +635,15 @@ export default function GardnrAreaMap() {
 
   if (areaQuery.isError) {
     return (
-      <div className="rounded-[20px] border border-ui-border bg-ui-surface p-6 text-center text-sm text-ui-muted">
-        Deze tuin kon niet worden geladen.{" "}
-        <button onClick={() => areaQuery.refetch()} className="font-semibold text-ui-brand-strong underline">
-          Opnieuw proberen
-        </button>{" "}
-        of{" "}
-        <button onClick={() => navigate("/gardnr")} className="font-semibold text-ui-brand-strong underline">
-          terug naar Tuinen
-        </button>
+      <div className="rounded-[20px] border border-ui-border bg-ui-surface p-6 text-center text-sm text-ui-muted">{tr("Deze tuin kon niet worden geladen.")}{" "}
+        <button onClick={() => areaQuery.refetch()} className="font-semibold text-ui-brand-strong underline">{tr("Opnieuw proberen")}</button>{" "}{tr("of")}{" "}
+        <button onClick={() => navigate("/gardnr")} className="font-semibold text-ui-brand-strong underline">{tr("terug naar Tuinen")}</button>
         .
       </div>
     );
   }
   if (!areaQuery.data) {
-    return <div className="rounded-[20px] border border-ui-border bg-ui-surface p-6 text-center text-ui-muted">Laden…</div>;
+    return <div className="rounded-[20px] border border-ui-border bg-ui-surface p-6 text-center text-ui-muted">{tr("Laden…")}</div>;
   }
 
   const { area, zones, plants } = areaQuery.data;
@@ -669,10 +657,10 @@ export default function GardnrAreaMap() {
   const peekZone = peekPlant && peekPlant.x !== null && peekPlant.y !== null ? zoneAt(zones, Number(peekPlant.x), Number(peekPlant.y)) : undefined;
   const editHint =
     tool === "add-plant"
-      ? "Tik op de kaart waar de nieuwe plant moet komen — ook midden in een vak."
+      ? tr("Tik op de kaart waar de nieuwe plant moet komen — ook midden in een vak.")
       : placingPlant
-        ? `Tik op de kaart waar ${placingPlant.name} staat.`
-        : "Sleep vakken en planten naar hun plek. Het hoekje rechtsonder maakt een vak groter of kleiner.";
+        ? tr("Tik op de kaart waar {name} staat.", { name: placingPlant.name })
+        : tr("Sleep vakken en planten naar hun plek. Het hoekje rechtsonder maakt een vak groter of kleiner.");
 
   const map = (
     <div
@@ -761,18 +749,16 @@ export default function GardnrAreaMap() {
       )}
 
       {zones.length === 0 && plants.length === 0 && !editing && (
-        <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-ui-muted">
-          Lege kaart — tik op Bewerken om een vak of plant toe te voegen.
-        </div>
+        <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-ui-muted">{tr("Lege kaart — tik op Bewerken om een vak of plant toe te voegen.")}</div>
       )}
     </div>
   );
 
   const errors = (
     <>
-      {createZoneMutation.isError && <p className="m-0 text-sm text-ui-late">Vak aanmaken is mislukt — probeer het opnieuw.</p>}
+      {createZoneMutation.isError && <p className="m-0 text-sm text-ui-late">{tr("Vak aanmaken is mislukt — probeer het opnieuw.")}</p>}
       {(moveZoneMutation.isError || movePlantMutation.isError) && (
-        <p className="m-0 text-sm text-ui-late">Opslaan is mislukt — de vorige positie en grootte zijn teruggezet.</p>
+        <p className="m-0 text-sm text-ui-late">{tr("Opslaan is mislukt — de vorige positie en grootte zijn teruggezet.")}</p>
       )}
     </>
   );
@@ -801,19 +787,17 @@ export default function GardnrAreaMap() {
         {errors}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => createZoneMutation.mutate()} disabled={createZoneMutation.isPending} className={toolButton(false)}>
-            <IconSquare size={18} />+ Vak
-          </button>
+            <IconSquare size={18} />{tr("+ Vak")}</button>
           <button type="button" onClick={() => selectTool(tool === "add-plant" ? "none" : "add-plant")} aria-pressed={tool === "add-plant"} className={toolButton(tool === "add-plant")}>
-            <IconSprout size={18} />+ Plant
-          </button>
+            <IconSprout size={18} />{tr("+ Plant")}</button>
         </div>
         {selectedZone && <ZoneEditor key={selectedZone.id} zone={selectedZone} onDeleted={() => setSelection(null)} />}
         {selectedPlant && <PlantEditor plant={selectedPlant} onOpenDetails={() => setDetailPlantId(selectedPlant.id)} />}
         {unplaced.length > 0 && (
-          <section aria-label="Nog niet op de kaart" className="flex flex-col gap-2.5">
+          <section aria-label={tr("Nog niet op de kaart")} className="flex flex-col gap-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[15px] font-bold text-ui-ink">Nog niet op de kaart</span>
-              <span className="text-[13px] text-ui-muted">Tik een plant, dan de plek</span>
+              <span className="text-[15px] font-bold text-ui-ink">{tr("Nog niet op de kaart")}</span>
+              <span className="text-[13px] text-ui-muted">{tr("Tik een plant, dan de plek")}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {unplaced.map((p) => {
@@ -844,16 +828,12 @@ export default function GardnrAreaMap() {
     <div className="flex flex-col gap-3.5 pb-2">
       <GardnrTopRow
         left={
-          <Link to="/gardnr" aria-label="Terug naar Tuinen" className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
-            <IconChevronLeft size={20} />
-            Tuinen
-          </Link>
+          <Link to="/gardnr" aria-label={tr("Terug naar Tuinen")} className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
+            <IconChevronLeft size={20} />{tr("Tuinen")}</Link>
         }
       >
         <button type="button" onClick={() => setEditMode(true)} className={secondaryButtonClass}>
-          <IconPencil size={18} />
-          Bewerken
-        </button>
+          <IconPencil size={18} />{tr("Bewerken")}</button>
       </GardnrTopRow>
 
       <div className="flex items-end justify-between gap-3">
@@ -867,14 +847,12 @@ export default function GardnrAreaMap() {
           type="button"
           onClick={toggleShowNames}
           aria-pressed={showNames}
-          title="Namen op de kaart tonen"
+          title={tr("Namen op de kaart tonen")}
           className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold ${
             showNames ? "border-ui-brand-strong bg-ui-brand-soft text-ui-brand-strong" : "border-ui-border bg-ui-surface text-ui-ink-soft"
           }`}
         >
-          <IconTag size={16} />
-          Namen
-        </button>
+          <IconTag size={16} />{tr("Namen")}</button>
       </div>
 
       {map}
@@ -890,11 +868,13 @@ export default function GardnrAreaMap() {
         />
       )}
       {!peekPlant && plants.length > unplaced.length && (
-        <p className="m-0 text-[13px] text-ui-muted">Tik op een plant voor wat er moet gebeuren; nog een keer tikken opent alle gegevens.</p>
+        <p className="m-0 text-[13px] text-ui-muted">{tr("Tik op een plant voor wat er moet gebeuren; nog een keer tikken opent alle gegevens.")}</p>
       )}
       {unplaced.length > 0 && (
         <p className="m-0 text-[13px] text-ui-ink-soft">
-          {unplaced.length === 1 ? `${unplaced[0].name} staat` : `${unplaced.length} planten staan`} nog niet op de kaart — plaats ze via Bewerken.
+          {unplaced.length === 1
+            ? tr("{name} staat nog niet op de kaart — plaats ze via Bewerken.", { name: unplaced[0].name })
+            : tr("{n} planten staan nog niet op de kaart — plaats ze via Bewerken.", { n: unplaced.length })}
         </p>
       )}
       {dialogs}

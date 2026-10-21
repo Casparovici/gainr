@@ -8,6 +8,7 @@ import type { GardenActionSummary, GardenCareLog, GardenPlantListRow } from "../
 import UndoToast from "../../components/UndoToast";
 import PlantDetailPanel from "../../components/gardnr/PlantDetailPanel";
 import { actionLabel, dueBucket, dueText, SOON_DAYS, todayLocalISO } from "../../utils/gardnr";
+import { msg, t } from "../../i18n";
 
 type Bucket = "late" | "today" | "soon";
 
@@ -18,9 +19,10 @@ interface DueItem {
 }
 
 const SECTIONS: { bucket: Bucket; title: string }[] = [
-  { bucket: "late", title: "Te laat" },
-  { bucket: "today", title: "Vandaag" },
-  { bucket: "soon", title: `Binnenkort (${SOON_DAYS} dagen)` },
+  { bucket: "late", title: msg("Te laat") },
+  { bucket: "today", title: msg("Vandaag") },
+  // "{days}" is filled in where the title is shown.
+  { bucket: "soon", title: msg("Binnenkort ({days} dagen)") },
 ];
 
 /** Every scheduled action (not just each plant's soonest) that's late, due today or due within a
@@ -82,29 +84,24 @@ export default function GardnrToday() {
       {/* Not drawn in the redesign itself, but it shares its shell: the switcher row on a phone
           and the design's display heading. */}
       <GardnrTopRow />
-      <PageTitle>Vandaag</PageTitle>
+      <PageTitle>{t("Vandaag")}</PageTitle>
 
       {plantsQuery.isLoading ? (
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-slate-400">Laden…</div>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-slate-400">{t("Laden…")}</div>
       ) : plantsQuery.isError ? (
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-          Kon niet laden wat er vandaag te doen is.{" "}
-          <button onClick={() => plantsQuery.refetch()} className="font-medium text-slate-900 underline">
-            Opnieuw proberen
-          </button>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">{t("Kon niet laden wat er vandaag te doen is.")}{" "}
+          <button onClick={() => plantsQuery.refetch()} className="font-medium text-slate-900 underline">{t("Opnieuw proberen")}</button>
         </div>
       ) : (
         <>
           {nothingDue && (
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-slate-400">
-              Niets te doen vandaag — elke tuin is bij.
-            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-slate-400">{t("Niets te doen vandaag — elke tuin is bij.")}</div>
           )}
           {SECTIONS.map(({ bucket, title }) =>
             buckets[bucket].length === 0 ? null : (
-              <section key={bucket} aria-label={title} className="rounded-lg border border-slate-200 bg-white">
+              <section key={bucket} aria-label={t(title, { days: SOON_DAYS })} className="rounded-lg border border-slate-200 bg-white">
                 <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2.5">
-                  <h2 className={`text-sm font-medium ${bucket === "soon" ? "text-slate-500" : "text-slate-700"}`}>{title}</h2>
+                  <h2 className={`text-sm font-medium ${bucket === "soon" ? "text-slate-500" : "text-slate-700"}`}>{t(title, { days: SOON_DAYS })}</h2>
                   <span className="ml-auto text-xs text-slate-400">{buckets[bucket].length}</span>
                 </div>
                 <ul className="divide-y divide-slate-50">
@@ -131,7 +128,7 @@ export default function GardnrToday() {
                           }`}
                         >
                           <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-                          {bucket === "soon" ? "Nu al gedaan" : "Gedaan"}
+                          {bucket === "soon" ? t("Nu al gedaan") : t("Gedaan")}
                         </button>
                       </li>
                     );
@@ -144,12 +141,15 @@ export default function GardnrToday() {
       )}
 
       {(logDoneMutation.isError || undoMutation.isError) && (
-        <p className="text-sm text-red-600">{undoMutation.isError ? "Ongedaan maken is mislukt" : "Registreren is mislukt"} — probeer het opnieuw.</p>
+        <p className="text-sm text-red-600">{undoMutation.isError ? t("Ongedaan maken is mislukt — probeer het opnieuw.") : t("Registreren is mislukt — probeer het opnieuw.")}</p>
       )}
 
       {lastDone && (
         <UndoToast
-          message={`${actionLabel(lastDone.item.action.action_type, lastDone.item.action.custom_label)} geregistreerd voor ${lastDone.item.plant.name}.`}
+          message={t("{action} geregistreerd voor {plant}.", {
+            action: actionLabel(lastDone.item.action.action_type, lastDone.item.action.custom_label),
+            plant: lastDone.item.plant.name,
+          })}
           onUndo={() => {
             undoMutation.mutate(lastDone);
             setLastDone(null);

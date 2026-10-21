@@ -6,8 +6,14 @@ from sqlalchemy.orm import Session
 
 from app.models.gripr_recurring import GriprRecurrenceFrequency, GriprRecurringTransaction
 from app.models.gripr_transaction import GriprTransaction, GriprTransactionType
-from app.repositories import bank_sync_repo, gripr_account_repo, gripr_recurring_repo, gripr_transaction_repo
-from app.services import gripr_transaction_service
+from app.repositories import (
+    bank_sync_repo,
+    gripr_account_repo,
+    gripr_depreciation_repo,
+    gripr_recurring_repo,
+    gripr_transaction_repo,
+)
+from app.services import gripr_depreciation_service, gripr_transaction_service
 from app.services.gripr_period_service import period_bounds
 
 _UNIT = {
@@ -69,6 +75,7 @@ def _book_due_occurrence(db: Session, rule: GriprRecurringTransaction, occurrenc
         category_id=rule.category_id,
         notes=rule.notes,
         source_ref=source_ref,
+        depreciations=gripr_depreciation_service.for_rule(db, rule.id),
     )
 
 
@@ -82,7 +89,7 @@ def _prebook_next_occurrence(db: Session, rule: GriprRecurringTransaction) -> Gr
     source_ref = _source_ref(rule, rule.next_due_date)
     if gripr_transaction_repo.exists_by_source_ref(db, source_ref):
         return None
-    return gripr_transaction_repo.create_transaction(
+    txn = gripr_transaction_repo.create_transaction(
         db,
         date=rule.next_due_date,
         type=rule.type,
@@ -93,6 +100,9 @@ def _prebook_next_occurrence(db: Session, rule: GriprRecurringTransaction) -> Gr
         notes=rule.notes,
         source_ref=source_ref,
     )
+    # Carried now, applied when it is due (apply_effects), like the other side effects.
+    gripr_depreciation_service.attach(db, txn, gripr_depreciation_service.for_rule(db, rule.id))
+    return txn
 
 
 def generate_due(db: Session, as_of: date_ | None = None) -> list[GriprTransaction]:
@@ -258,3 +268,9 @@ def planned_until_period_end(db: Session, start_day: int, as_of: date_ | None = 
     as_of = as_of or date_.today()
     until = period_bounds(as_of, start_day)[1]
     return until, planned_occurrences(db, as_of, until)
+
+
+def delete_rule(db: Session, rule: GriprRecurringTransaction) -> None:
+    """The rule and its depreciation plan (ADR 0034). Transactions it already booked stay."""
+    gripr_depreciation_repo.delete_for_rule(db, rule.id)
+    gripr_recurring_repo.delete_recurring(db, rule)

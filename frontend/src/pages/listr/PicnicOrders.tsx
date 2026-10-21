@@ -11,14 +11,15 @@ import PicnicSyncCard from "../../components/listr/PicnicSyncCard";
 import { IconChevronLeft, ModuleTopRow, PageTitle, secondaryButtonClass } from "../../components/ui/kit";
 import { usePicnicConnect } from "../../hooks/usePicnicConnect";
 import { formatEur, toNumber } from "../../utils/format";
+import { dateLocale, t, tp } from "../../i18n";
 
 const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  new Date(iso).toLocaleDateString(dateLocale("nl-NL"), { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 const sinceLabel = (iso: string) =>
-  new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
-const monthLabel = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { month: "short" });
+  new Date(iso + "T00:00:00").toLocaleDateString(dateLocale("nl-NL"), { day: "numeric", month: "short", year: "numeric" });
+const monthLabel = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString(dateLocale("nl-NL"), { month: "short" });
 const monthLongLabel = (iso: string) =>
-  new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { month: "long", year: "numeric" });
+  new Date(iso + "T00:00:00").toLocaleDateString(dateLocale("nl-NL"), { month: "long", year: "numeric" });
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -48,8 +49,8 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: { paylo
       <div className="font-semibold text-ui-ink first-letter:uppercase">{monthLongLabel(row.month)}</div>
       <div className="mt-0.5 tabular-nums text-ui-ink">{formatEur(row.total)}</div>
       <div className="text-ui-muted">
-        {row.deliveries} {row.deliveries === 1 ? "levering" : "leveringen"}
-        {row.partial && " · deel van de maand"}
+        {tp(row.deliveries, "{n} levering", "{n} leveringen")}
+        {row.partial && ` · ${t("deel van de maand")}`}
       </div>
     </div>
   );
@@ -89,7 +90,7 @@ function MonthlyChart({ months }: { months: ListrPicnicMonth[] }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <p className="m-0 text-xs text-ui-muted">De lichte maanden vallen maar deels binnen de 12 maanden.</p>
+      <p className="m-0 text-xs text-ui-muted">{t("De lichte maanden vallen maar deels binnen de 12 maanden.")}</p>
     </div>
   );
 }
@@ -122,75 +123,63 @@ export default function ListrPicnicOrders() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow
         left={
-          <Link to="/listr" aria-label="Terug naar lijsten" className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
-            <IconChevronLeft size={20} />
-            Lijsten
-          </Link>
+          <Link to="/listr" aria-label={t("Terug naar lijsten")} className={`${secondaryButtonClass} pl-2 pr-3 no-underline`}>
+            <IconChevronLeft size={20} />{t("Lijsten")}</Link>
         }
       >
-        <Link to="/listr/winkelwagen" aria-label="Picnic-winkelwagen" className={`${secondaryButtonClass} no-underline`}>
+        <Link to="/listr/winkelwagen" aria-label={t("Picnic-winkelwagen")} className={`${secondaryButtonClass} no-underline`}>
           <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={2} />
-          <span className="hidden sm:inline">Winkelwagen</span>
+          <span className="hidden sm:inline">{t("Winkelwagen")}</span>
         </Link>
       </ModuleTopRow>
-      <PageTitle subtitle={data ? `Afgelopen 12 maanden, sinds ${sinceLabel(data.since)}` : "Afgelopen 12 maanden"}>
-        Picnic-bestellingen
-      </PageTitle>
+      <PageTitle subtitle={data ? t("Afgelopen 12 maanden, sinds {date}", { date: sinceLabel(data.since) }) : t("Afgelopen 12 maanden")}>{t("Picnic-bestellingen")}</PageTitle>
 
       {!picnic.status ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">Laden…</div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Laden…")}</div>
       ) : !picnic.status.configured || !connected ? (
-        <PicnicConnectCard picnic={picnic} reason="Verbind met Picnic om je bestellingen en uitgaven te zien." />
+        <PicnicConnectCard picnic={picnic} reason={t("Verbind met Picnic om je bestellingen en uitgaven te zien.")} />
       ) : ordersQuery.isLoading ? (
-        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">
-          Bestellingen ophalen bij Picnic…
-        </div>
+        <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Bestellingen ophalen bij Picnic…")}</div>
       ) : ordersQuery.isError || !data ? (
-        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">
-          Picnic-bestellingen ophalen is mislukt. Probeer het later opnieuw.
-        </div>
+        <div className="rounded-2xl bg-ui-late-soft px-4 py-3.5 text-[15px] font-semibold text-ui-late">{t("Picnic-bestellingen ophalen is mislukt. Probeer het later opnieuw.")}</div>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <Stat label="Uitgegeven" value={formatEur(data.total)} sub="excl. statiegeld" />
+            <Stat label={t("Uitgegeven")} value={formatEur(data.total)} sub={t("excl. statiegeld")} />
             <Stat
-              label="Leveringen"
+              label={t("Leveringen")}
               value={String(data.deliveries.length)}
-              sub={`${data.deliveries.reduce((n, d) => n + d.order_count, 0)} bestellingen`}
+              sub={t("{count} bestellingen", { count: data.deliveries.reduce((n, d) => n + d.order_count, 0) })}
             />
-            <Stat label="Per levering" value={formatEur(data.average_per_delivery)} sub="gemiddeld" />
+            <Stat label={t("Per levering")} value={formatEur(data.average_per_delivery)} sub={t("gemiddeld")} />
           </div>
 
           {data.deliveries.length === 0 ? (
-            <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">
-              Geen Picnic-leveringen in de afgelopen 12 maanden.
-            </div>
+            <div className="rounded-[20px] border border-ui-border bg-ui-surface px-4 py-6 text-center text-ui-muted">{t("Geen Picnic-leveringen in de afgelopen 12 maanden.")}</div>
           ) : (
             <>
               <section className="flex flex-col gap-3 rounded-[20px] border border-ui-border bg-ui-surface p-4">
-                <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Per maand</h2>
+                <h2 className="m-0 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Per maand")}</h2>
                 <MonthlyChart months={data.months} />
               </section>
 
               <PicnicSyncCard />
 
               <section className="overflow-hidden rounded-[20px] border border-ui-border bg-ui-surface">
-                <h2 className="m-0 border-b border-ui-border px-4 py-3 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">
-                  Leveringen
-                </h2>
+                <h2 className="m-0 border-b border-ui-border px-4 py-3 font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Leveringen")}</h2>
                 <ul className="m-0 list-none divide-y divide-ui-border p-0">
                   {data.deliveries.map((d) => (
                     <li key={d.id} className="flex min-h-[52px] items-center justify-between gap-3 px-4 py-2">
                       <div className="flex min-w-0 flex-col">
                         <span className="block text-[15px] font-medium text-ui-ink first-letter:uppercase">{dayLabel(d.delivered_at)}</span>
                         <span className="text-xs text-ui-muted">
-                          {d.order_count} {d.order_count === 1 ? "bestelling" : "bestellingen"}
+                          {tp(d.order_count, "{n} bestelling", "{n} bestellingen")}
                         </span>
                         {d.processed && (
                           <span className="mt-1 flex flex-wrap gap-1">
-                            {d.processed.orders_booked > 0 && <ProcessedChip>in gripr geboekt</ProcessedChip>}
-                            {d.processed.orders_matched > 0 && <ProcessedChip>al geboekt</ProcessedChip>}
-                            {d.processed.items_restocked > 0 && <ProcessedChip>+{d.processed.items_restocked} voorraad</ProcessedChip>}
+                            {d.processed.orders_booked > 0 && <ProcessedChip>{t("in gripr geboekt")}</ProcessedChip>}
+                            {d.processed.orders_matched > 0 && <ProcessedChip>{t("al geboekt")}</ProcessedChip>}
+                            {d.processed.items_restocked > 0 && <ProcessedChip>+{d.processed.items_restocked}{" "}{t("voorraad")}</ProcessedChip>}
                           </span>
                         )}
                       </div>

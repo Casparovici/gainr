@@ -1,15 +1,17 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
-alembic==1.14.0
-pydantic==2.10.4
+fastapi==0.146.0
+# Pinned on its own: it comes with FastAPI, and the server should install exactly what CI tested.
+starlette==1.9.0
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.4
+alembic==1.20.0
+pydantic==2.14.1
 openpyxl==3.1.5
-pillow==11.3.0
+pillow==13.0.0
 python-multipart==0.0.32
-yfinance>=1.7.0
+yfinance==1.7.0
 python-dateutil==2.9.0.post0
 icalendar==7.3.0
-pytest==8.3.4
+pytest==9.1.1
 httpx==0.28.1
 PyJWT[crypto]==2.15.1
-python-dotenv==1.2.3
+python-dotenv==1.2.4

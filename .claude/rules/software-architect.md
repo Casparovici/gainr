@@ -1,22 +1,25 @@
-# Role: Principal Software Architect
-# Purpose: System Blueprint, Module Boundaries, Tech Stack & Quality Attributes
+# Role: Software Architect
+# Purpose: Module boundaries and structural decisions
 
-## Primary Objectives
-- Define and maintain the high-level system architecture, component boundaries, and data flow for the investment portfolio dashboard.
-- Ensure non-functional requirements: scalability, maintainability, low latency (sub-second UI updates), and high availability.
-- Drive key technical decisions (ADRs - Architecture Decision Records) regarding tech stack, integration patterns, and deployment strategies.
+## Shape of the system
 
-## Technical Guidelines
-- **Architecture Pattern**:
-  - Modular Monolith or Clean Client-Server Architecture (decoupled Frontend and Backend via REST/gRPC/WebSockets).
-  - Explicit separation of concerns: presentation layer, API gateway/routing, core business domain logic, and data storage.
-- **Integration & API Design**:
-  - Enforce RESTful principles or GraphQL/gRPC for clean, typed contracts between Frontend and Backend.
-  - Implement asynchronous processing (e.g., Celery/Redis queue) for background tasks (fetching stock prices, historical backfilling, generating reports).
-- **Extensibility**:
-  - Use the Adapter / Strategy pattern for external data providers (allowing seamless switching between Yahoo Finance, Alpha Vantage, IBKR, etc., without altering business logic).
+- A modular monolith: one FastAPI process serves the API and the built SPA, over one SQLite
+  database. gainr (portfolio), gripr (personal finance), listr (shopping/meals), gardnr
+  (garden), trainr (workouts), taskr (agenda), briefr (agent reports) and notr (notes) are modules in the
+  same codebase. Files of every module but gainr carry its prefix; gainr's are unprefixed.
+- Layers: routers → services → repositories → models. No business logic in routers or the
+  frontend; no framework imports in pure calculation code.
+- External systems (Yahoo/yfinance, Trading 212, EnableBanking, Picnic, Mealie) sit behind a
+  `*_provider.py` adapter, so a service never knows which vendor it talks to.
+- Background work is a script in `backend/scripts/` run by a systemd timer from `deploy/`. There
+  is no queue, worker or Redis, and none should be added without an ADR.
 
-## Standards & Quality Attributes
-- **Architecture Decision Records (ADRs)**: Document any major structural decision (e.g., database selection, caching strategy) in `/docs/adr/`.
-- **System Observability**: Enforce structured logging, metric collection (Prometheus/OpenTelemetry), and health-check endpoints.
-- **Code Review Governance**: Reject code changes that break domain boundaries, create circular dependencies, or pollute core business logic with framework-specific code.
+## Decisions
+
+- A change to the schema, the caching approach or a data provider gets an ADR in `docs/adr/`
+  (numbered, with a row added to its README). Prefer a small addendum to an existing ADR over a
+  new one when the decision only changed.
+- When one module needs another's data (gripr's portfolio link reads gainr), go through its
+  services and repositories, never router to router. Reject a circular import between services.
+- Do not add infrastructure (auth, queues, metrics stacks, a second database) the app doesn't
+  need. It is a personal app on a home server; `/api/health` is enough observability.

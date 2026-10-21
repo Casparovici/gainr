@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import type { NewsSource } from "../api/types";
+import { t } from "../i18n";
 
 const OTHER_SYMBOL = "__other_symbol__";
 
@@ -34,7 +35,7 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
       setSymbol(null);
       setError(null);
     },
-    onError: () => setError("Couldn't save that source."),
+    onError: () => setError(t("Couldn't save that source.")),
   });
 
   const keys = sources.map((s) => s.key);
@@ -51,7 +52,7 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
   return (
     <div className="mb-3 flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-slate-500">{sources.length > 0 ? "Also from:" : "Only this holding's own news."}</span>
+        <span className="text-slate-500">{sources.length > 0 ? t("Also from:") : t("Only this holding's own news.")}</span>
         {sources.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2 pr-1 text-slate-700">
             {s.label}
@@ -60,8 +61,8 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
               onClick={() => mutation.mutate(keys.filter((k) => k !== s.key))}
               disabled={mutation.isPending}
               className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              aria-label={`Stop showing news from ${s.label}`}
-              title="Remove"
+              aria-label={t("Stop showing news from {source}", { source: s.label })}
+              title={t("Remove")}
             >
               <X className="h-3 w-3" strokeWidth={2.5} />
             </button>
@@ -72,9 +73,7 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
             type="button"
             onClick={() => setAdding(true)}
             className="rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-slate-500 hover:border-slate-400 hover:text-slate-800"
-          >
-            + Add source
-          </button>
+          >{t("+ Add source")}</button>
         )}
       </div>
 
@@ -83,26 +82,26 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
           {symbol === null ? (
             <select
               autoFocus
-              aria-label="News source"
+              aria-label={t("News source")}
               defaultValue=""
               disabled={!catalog || mutation.isPending}
               onChange={(e) => (e.target.value === OTHER_SYMBOL ? setSymbol("") : add(e.target.value))}
               className={`${inputClass} max-w-full`}
             >
               <option value="" disabled>
-                {catalog ? "Pick a market, sector or industry…" : catalogQuery.isError ? "Couldn't load sources" : "Loading…"}
+                {catalog ? t("Pick a market, sector or industry…") : catalogQuery.isError ? t("Couldn't load sources") : t("Loading…")}
               </option>
               {catalog && (
                 <>
-                  <optgroup label="Markets">
+                  <optgroup label={t("Markets")}>
                     {catalog.markets.map((m) => (
                       <option key={m.key} value={m.key}>
                         {m.label}
                       </option>
                     ))}
-                    <option value={OTHER_SYMBOL}>Other Yahoo symbol…</option>
+                    <option value={OTHER_SYMBOL}>{t("Other Yahoo symbol…")}</option>
                   </optgroup>
-                  <optgroup label="Sectors">
+                  <optgroup label={t("Sectors")}>
                     {catalog.sectors.map((s) => (
                       <option key={s.key} value={s.key}>
                         {s.label}
@@ -110,7 +109,8 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
                     ))}
                   </optgroup>
                   {[...industriesBySector.entries()].map(([sector, industries]) => (
-                    <optgroup key={sector} label={`Industries · ${sector}`}>
+                    <optgroup key={sector} label={t("Industries · {sector}", { sector })}
+>
                       {industries.map((i) => (
                         <option key={i.key} value={i.key}>
                           {i.label}
@@ -133,13 +133,11 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
                 autoFocus
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
-                placeholder="e.g. GC=F, ^GSPC, NVDA"
-                aria-label="Yahoo symbol"
+                placeholder={t("e.g. GC=F, ^GSPC, NVDA")}
+                aria-label={t("Yahoo symbol")}
                 className={`${inputClass} w-40`}
               />
-              <button type="submit" disabled={!symbol.trim() || mutation.isPending} className="text-xs font-medium text-slate-700 hover:text-slate-900 disabled:opacity-40">
-                Add
-              </button>
+              <button type="submit" disabled={!symbol.trim() || mutation.isPending} className="text-xs font-medium text-slate-700 hover:text-slate-900 disabled:opacity-40">{t("Add")}</button>
             </form>
           )}
           <button
@@ -150,9 +148,7 @@ export default function NewsSourcesEditor({ assetId, sources }: { assetId: numbe
               setError(null);
             }}
             className="text-xs text-slate-500 hover:text-slate-800"
-          >
-            Cancel
-          </button>
+          >{t("Cancel")}</button>
         </div>
       )}
       {error && <span className="text-xs text-red-600">{error}</span>}

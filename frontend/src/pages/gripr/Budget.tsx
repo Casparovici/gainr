@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Check, Link2, PiggyBank, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -11,17 +11,20 @@ import type {
   GriprCategoryKind,
   GriprSavingsGoalLine,
   GriprSavingsGoalSuggestion,
+  GriprSavingsRoom,
 } from "../../api/griprTypes";
 import BudgetCell from "../../components/gripr/BudgetCell";
 import CategoryDetailDialog from "../../components/gripr/CategoryDetailDialog";
 import NewCategoryForm from "../../components/gripr/NewCategoryForm";
 import PeriodSwitcher, { formatPeriodLabel } from "../../components/gripr/PeriodSwitcher";
 import { ModuleTopRow, PageTitle } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
 import ProgressBar from "../../components/gripr/ProgressBar";
 import { buildCategoryColorMap } from "../../utils/categoryColor";
 import { CategoryGlyph } from "../../utils/categoryIcons";
 import { formatEur, toNumber } from "../../utils/format";
 import { currentPeriodStart, periodBounds } from "../../utils/griprPeriod";
+import { t, tp } from "../../i18n";
 
 /** How a line is doing against its number, in words -- spend against a cap, receipts against a
  * target, savings against a goal. One function so the kinds can't drift into inconsistent
@@ -29,8 +32,13 @@ import { currentPeriodStart, periodBounds } from "../../utils/griprPeriod";
  * and savings, where more is better. */
 function remainingText(kind: GriprCategoryKind, actual: number, budgeted: number): { text: string; bad: boolean } {
   const remaining = kind === "income" ? actual - budgeted : budgeted - actual;
-  if (kind === "income") return { text: `${remaining < 0 ? "Behind by" : "Ahead by"} ${formatEur(Math.abs(remaining))}`, bad: remaining < 0 };
-  return remaining < 0 ? { text: `Over by ${formatEur(-remaining)}`, bad: true } : { text: `Left ${formatEur(remaining)}`, bad: false };
+  if (kind === "income") {
+    const amount = formatEur(Math.abs(remaining));
+    return { text: remaining < 0 ? t("Behind by {amount}", { amount }) : t("Ahead by {amount}", { amount }), bad: remaining < 0 };
+  }
+  return remaining < 0
+    ? { text: t("Over by {amount}", { amount: formatEur(-remaining) }), bad: true }
+    : { text: t("Left {amount}", { amount: formatEur(remaining) }), bad: false };
 }
 
 /** One budget line as a quiet two-line row: icon, name and "actual of budget" on top, the
@@ -86,7 +94,7 @@ function BudgetRow({
         >
           <span className="text-xs text-on-surface-variant">{actualLabel}</span>
           <span className="font-medium text-on-surface">{formatEur(actual)}</span>
-          <span className="text-xs text-on-surface-variant">of</span>
+          <span className="text-xs text-on-surface-variant">{t("of")}</span>
           {budgetCell}
         </span>
         <div className="[grid-area:bar]">
@@ -107,12 +115,12 @@ function BudgetRow({
 function TotalsSummary({ kind, actual, budgeted, actualLabel }: { kind: GriprCategoryKind; actual: number; budgeted: number; actualLabel: string }) {
   const status = budgeted > 0 ? remainingText(kind, actual, budgeted) : null;
   return (
-    <section className="rounded-2xl border border-outline-variant bg-surface px-4 py-3" aria-label="Totals">
+    <section className="rounded-2xl border border-outline-variant bg-surface px-4 py-3" aria-label={t("Totals")}>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-on-surface-variant">{actualLabel} this period</span>
+        <span className="text-sm text-on-surface-variant">{actualLabel}{" "}{t("this period")}</span>
         <span className="tabular-nums">
           <span className="text-lg font-semibold text-on-surface">{formatEur(actual)}</span>{" "}
-          <span className="text-sm text-on-surface-variant">of {formatEur(budgeted)}</span>
+          <span className="text-sm text-on-surface-variant">{t("of {amount}", { amount: formatEur(budgeted) })}</span>
         </span>
       </div>
       <div className="mt-2">
@@ -188,7 +196,9 @@ function BudgetSection({
   return (
     <div className="flex flex-col gap-3">
       {lines.length === 0 ? (
-        <p className="text-sm text-on-surface-variant">No {kind} categories yet — add your first one below.</p>
+        <p className="text-sm text-on-surface-variant">{kind === "income"
+            ? t("No income categories yet — add your first one below.")
+            : t("No expense categories yet — add your first one below.")}</p>
       ) : (
         <RowCard>
           {lines.map((line) => {
@@ -200,13 +210,13 @@ function BudgetSection({
                 name={line.category_name}
                 marker={
                   linkedLoan && (
-                    <span className="shrink-0 text-on-surface-variant" title={`Pays off ${linkedLoan}`} aria-label={`Pays off ${linkedLoan}`}>
+                    <span className="shrink-0 text-on-surface-variant" title={t("Pays off {loan}", { loan: linkedLoan })} aria-label={t("Pays off {loan}", { loan: linkedLoan })}>
                       <Link2 className="h-3.5 w-3.5" strokeWidth={2} />
                     </span>
                   )
                 }
                 kind={kind}
-                actualLabel={kind === "income" ? "Received" : "Spent"}
+                actualLabel={kind === "income" ? t("Received") : t("Spent")}
                 actual={toNumber(line.spent) ?? 0}
                 budgeted={toNumber(line.budgeted) ?? 0}
                 highlighted={dragOverId === line.category_id && draggedId !== line.category_id}
@@ -222,8 +232,8 @@ function BudgetSection({
                 rowProps={{
                   role: "button",
                   tabIndex: 0,
-                  "aria-label": `${line.category_name}: transactions and settings`,
-                  title: "Drag to reorder",
+                  "aria-label": t("{category}: transactions and settings", { category: line.category_name }),
+                  title: t("Drag to reorder"),
                   onClick: () => onOpen(line.category_id),
                   onKeyDown: (e) => {
                     if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
@@ -247,9 +257,7 @@ function BudgetSection({
       )}
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-        <button type="button" onClick={onAdd} className="text-sm font-medium text-primary hover:underline">
-          + Add category
-        </button>
+        <button type="button" onClick={onAdd} className="text-sm font-medium text-primary hover:underline">{t("+ Add category")}</button>
         {archived.length > 0 && (
           <button
             type="button"
@@ -257,8 +265,8 @@ function BudgetSection({
             className="text-sm font-medium text-on-surface-variant hover:text-on-surface hover:underline"
           >
             {showArchived
-              ? "Hide archived categories"
-              : `Show ${archived.length} archived categor${archived.length === 1 ? "y" : "ies"}`}
+              ? t("Hide archived categories")
+              : tp(archived.length, "Show {n} archived category", "Show {n} archived categories")}
           </button>
         )}
       </div>
@@ -275,9 +283,7 @@ function BudgetSection({
                 >
                   <CategoryIcon name={category.name} color={colorOf.get(category.id) ?? category.color ?? "#94a3b8"} dimmed />
                   <span className="min-w-0 flex-1 truncate text-sm text-on-surface-variant">{category.name}</span>
-                  <span className="shrink-0 rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] text-on-surface-variant">
-                    archived
-                  </span>
+                  <span className="shrink-0 rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] text-on-surface-variant">{t("archived")}</span>
                 </button>
               </li>
             ))}
@@ -286,9 +292,63 @@ function BudgetSection({
       )}
 
       {lines.length > 0 && (
-        <TotalsSummary kind={kind} actual={totalActual} budgeted={totalBudgeted} actualLabel={kind === "income" ? "Received" : "Spent"} />
+        <TotalsSummary kind={kind} actual={totalActual} budgeted={totalBudgeted} actualLabel={kind === "income" ? t("Received") : t("Spent")} />
       )}
     </div>
+  );
+}
+
+/** What the period's budget leaves for saving and investing: budgeted income minus budgeted
+ * expenses, set against what the savings goals below already plan to take. The server works the
+ * figures out; this only says them. */
+function SavingsRoomCard({ room }: { room: GriprSavingsRoom }) {
+  const income = toNumber(room.income_budgeted) ?? 0;
+  const expenses = toNumber(room.expense_budgeted) ?? 0;
+  const roomAmount = toNumber(room.room) ?? 0;
+  const goals = toNumber(room.goals_budgeted) ?? 0;
+  const unallocated = toNumber(room.unallocated) ?? 0;
+  const nothingBudgeted = income === 0 && expenses === 0;
+
+  return (
+    <section className="rounded-2xl border border-outline-variant bg-surface px-4 py-3" aria-label={t("Room to save")}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm text-on-surface-variant">{t("Room to save this period")}</span>
+        <span className={`text-lg font-semibold tabular-nums ${roomAmount < 0 ? "text-error" : "text-on-surface"}`}>
+          {formatEur(roomAmount)}
+        </span>
+      </div>
+      {nothingBudgeted ? (
+        <p className="mt-1 text-xs text-on-surface-variant">
+          {t("Budget your income and expenses first, and what's left to save shows here.")}
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-xs tabular-nums text-on-surface-variant">
+            {t("{income} income budgeted − {expenses} expenses budgeted", {
+              income: formatEur(income),
+              expenses: formatEur(expenses),
+            })}
+          </p>
+          {roomAmount < 0 ? (
+            <p role="status" className="mt-2 text-xs text-error">
+              {t("The budgeted expenses are more than the budgeted income, so there's nothing left to save.")}
+            </p>
+          ) : (
+            <p
+              role="status"
+              className={`mt-2 border-t border-outline-variant pt-2 text-xs tabular-nums ${unallocated < 0 ? "text-error" : "text-on-surface-variant"}`}
+            >
+              {unallocated < 0
+                ? t("The goals below plan {amount} more than the budget leaves.", { amount: formatEur(-unallocated) })
+                : t("{goals} planned in the goals below, {amount} not planned yet.", {
+                    goals: formatEur(goals),
+                    amount: formatEur(unallocated),
+                  })}
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -297,25 +357,41 @@ function BudgetSection({
  * the Accounts page). */
 function SavingsSection({
   lines,
+  roomQuery,
   suggestionByAccount,
   onSaveGoal,
 }: {
   lines: GriprSavingsGoalLine[];
+  roomQuery: UseQueryResult<GriprSavingsRoom>;
   suggestionByAccount: Map<number, GriprSavingsGoalSuggestion>;
   onSaveGoal: (accountId: number, amount: string) => void;
 }) {
   const totalBudgeted = lines.reduce((sum, l) => sum + (toNumber(l.budgeted) ?? 0), 0);
   const totalActual = lines.reduce((sum, l) => sum + (toNumber(l.saved) ?? 0), 0);
 
+  const roomCard = roomQuery.isError ? (
+    <QueryError
+      className="rounded-2xl border border-outline-variant bg-surface px-4 py-3 text-sm"
+      message={t("Couldn't work out how much room there is to save.")}
+      onRetry={() => roomQuery.refetch()}
+    />
+  ) : roomQuery.data ? (
+    <SavingsRoomCard room={roomQuery.data} />
+  ) : (
+    <div className="h-[72px] animate-pulse rounded-2xl border border-outline-variant bg-surface-container" aria-label={t("Loading…")} />
+  );
+
   if (lines.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-outline-variant px-4 py-6 text-center text-sm text-on-surface-variant">
-        No savings or investment accounts yet — add one on the Accounts page.
+      <div className="flex flex-col gap-3">
+        {roomCard}
+        <div className="rounded-2xl border border-dashed border-outline-variant px-4 py-6 text-center text-sm text-on-surface-variant">{t("No savings or investment accounts yet — add one on the Accounts page.")}</div>
       </div>
     );
   }
   return (
     <div className="flex flex-col gap-3">
+      {roomCard}
       <RowCard>
         {lines.map((line) => {
           const Icon = line.account_type === "investment" ? TrendingUp : PiggyBank;
@@ -329,7 +405,7 @@ function SavingsSection({
               }
               name={line.account_name}
               kind="income"
-              actualLabel="Saved"
+              actualLabel={t("Saved")}
               actual={toNumber(line.saved) ?? 0}
               budgeted={toNumber(line.budgeted) ?? 0}
               budgetCell={
@@ -345,7 +421,7 @@ function SavingsSection({
           );
         })}
       </RowCard>
-      <TotalsSummary kind="income" actual={totalActual} budgeted={totalBudgeted} actualLabel="Saved" />
+      <TotalsSummary kind="income" actual={totalActual} budgeted={totalBudgeted} actualLabel={t("Saved")} />
     </div>
   );
 }
@@ -373,7 +449,7 @@ export default function GriprBudget() {
   const [newKind, setNewKind] = useState<GriprCategoryKind | null>(null);
 
   const budgetsKey = ["gripr-budgets", month] as const;
-  const { data: lines, isLoading } = useQuery({
+  const { data: lines, isLoading, isError, refetch } = useQuery({
     queryKey: budgetsKey,
     queryFn: () => griprApi.getBudgets(month as string),
     enabled: month !== null,
@@ -406,7 +482,7 @@ export default function GriprBudget() {
   const suggestionByCategory = new Map((suggestions ?? []).map((s) => [s.category_id, s]));
 
   const savingsGoalsKey = ["gripr-savings-goals", month] as const;
-  const { data: savingsLines } = useQuery({
+  const savingsQuery = useQuery({
     queryKey: savingsGoalsKey,
     queryFn: () => griprApi.getSavingsGoals(month as string),
     enabled: month !== null,
@@ -418,15 +494,30 @@ export default function GriprBudget() {
   });
   const suggestionByAccount = new Map((savingsSuggestions ?? []).map((s) => [s.account_id, s]));
 
+  // Under "gripr-budgets" so every place that changes a budget (a category's dialog, a transaction
+  // that moves a refund) refreshes it with the lines.
+  const savingsRoomKey = ["gripr-budgets", "savings-room", month] as const;
+  const savingsRoomQuery = useQuery({
+    queryKey: savingsRoomKey,
+    queryFn: () => griprApi.getSavingsRoom(month as string),
+    enabled: month !== null,
+  });
+
   const setBudgetMutation = useMutation({
     mutationFn: ({ categoryId, amount }: { categoryId: number; amount: string }) =>
       griprApi.setBudget(categoryId, month as string, amount),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: budgetsKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: savingsRoomKey });
+    },
   });
   const setSavingsGoalMutation = useMutation({
     mutationFn: ({ accountId, amount }: { accountId: number; amount: string }) =>
       griprApi.setSavingsGoal(accountId, month as string, amount),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: savingsGoalsKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: savingsGoalsKey });
+      queryClient.invalidateQueries({ queryKey: savingsRoomKey });
+    },
   });
   // Reordering here changes the category's own sort_order, so it's applied optimistically to
   // this month's line list for a snappy drag, then invalidated everywhere that order is read —
@@ -465,8 +556,19 @@ export default function GriprBudget() {
     reorderMutation.mutate(ids);
   }
 
+  const savingsLines = savingsQuery.data;
+
+  if (month === null && settingsQuery.isError) {
+    return (
+      <QueryError
+        className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center"
+        message={t("Couldn't load your period settings, so there's no budget period to show.")}
+        onRetry={() => settingsQuery.refetch()}
+      />
+    );
+  }
   if (month === null) {
-    return <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">Loading…</div>;
+    return <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">{t("Loading…")}</div>;
   }
 
   const colorOf = buildCategoryColorMap(categories ?? []);
@@ -479,7 +581,7 @@ export default function GriprBudget() {
   const linkedLoanNameOf = (categoryId: number): string | null => {
     const loanId = categoriesById.get(categoryId)?.linked_loan_account_id;
     if (loanId == null) return null;
-    return accountsById.get(loanId)?.name ?? "a deleted account";
+    return accountsById.get(loanId)?.name ?? t("a deleted account");
   };
   const archivedOf = (kind: GriprCategoryKind) =>
     (allCategories ?? []).filter((c) => c.kind === kind && c.parent_id === null && c.is_archived);
@@ -489,10 +591,10 @@ export default function GriprBudget() {
     <div className="flex flex-col gap-6">
       <div className="-mb-2 flex flex-col gap-4">
         <div className="sm:hidden">
-          <ModuleTopRow />
+          <ModuleTopRow settings={false} />
         </div>
         <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
-          <PageTitle>Budget</PageTitle>
+          <PageTitle>{t("Budget")}</PageTitle>
           <PeriodSwitcher periodStart={month} startDay={startDay} onChange={setMonth} />
         </div>
       </div>
@@ -503,9 +605,9 @@ export default function GriprBudget() {
       <div className="inline-flex self-start overflow-hidden rounded-full border border-outline">
         {(
           [
-            ["expense", "Expenses"],
-            ["income", "Income"],
-            ["savings", "Savings"],
+            ["expense", t("Expenses")],
+            ["income", t("Income")],
+            ["savings", t("Savings")],
           ] as const
         ).map(([key, label], i) => (
           <button
@@ -523,7 +625,19 @@ export default function GriprBudget() {
       </div>
 
       {isLoading ? (
-        <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">Loading…</div>
+        <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">{t("Loading…")}</div>
+      ) : tab !== "savings" && isError ? (
+        <QueryError
+          className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center"
+          message={t("Couldn't load this period's budget.")}
+          onRetry={() => refetch()}
+        />
+      ) : tab === "savings" && savingsQuery.isError ? (
+        <QueryError
+          className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center"
+          message={t("Couldn't load this period's savings goals.")}
+          onRetry={() => savingsQuery.refetch()}
+        />
       ) : tab === "expense" ? (
         <BudgetSection
           kind="expense"
@@ -569,6 +683,7 @@ export default function GriprBudget() {
       ) : (
         <SavingsSection
           lines={savingsLines ?? []}
+          roomQuery={savingsRoomQuery}
           suggestionByAccount={suggestionByAccount}
           onSaveGoal={(accountId, amount) => setSavingsGoalMutation.mutate({ accountId, amount })}
         />

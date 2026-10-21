@@ -7,9 +7,11 @@ import { api } from "../api/client";
 import type { Asset, TransactionInput } from "../api/types";
 import TransactionForm from "./TransactionForm";
 
-vi.mock("../api/client", () => ({ api: { lookupAsset: vi.fn(), createAsset: vi.fn() } }));
+vi.mock("../api/client", () => ({
+  api: { lookupAsset: vi.fn(), createAsset: vi.fn(), transactionAttachments: { key: "gainr", invalidates: [], list: vi.fn(), upload: vi.fn(), remove: vi.fn(), url: vi.fn() } },
+}));
 
-function renderForm(opts: { brokers?: string[]; onSubmit?: (input: TransactionInput) => void } = {}) {
+function renderForm(opts: { brokers?: string[]; onSubmit?: (input: TransactionInput, files: File[]) => void } = {}) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
@@ -103,7 +105,20 @@ describe("TransactionForm's Transfer type", () => {
         to_broker: "IBKR",
         total_eur: "500",
       }),
+      [],
     );
+  });
+
+  it("hands the files picked on a new transaction to onSubmit, to upload once it's saved", async () => {
+    const onSubmit = vi.fn();
+    renderForm({ onSubmit });
+    const invoice = new File(["%PDF-1.7"], "invoice.pdf", { type: "application/pdf" });
+
+    await userEvent.upload(screen.getByLabelText("Choose files to attach"), invoice);
+    await userEvent.type(screen.getByLabelText("Total (EUR)"), "100");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "Buy" }), [invoice]);
   });
 });
 

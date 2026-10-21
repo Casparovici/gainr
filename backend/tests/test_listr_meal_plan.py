@@ -126,6 +126,50 @@ def test_clearing_a_day_removes_it(db_session):
     assert listr_meal_plan_repo.list_range(db_session, day, day) == []
 
 
+def test_moving_a_day_re_dates_it_and_frees_the_old_day(client, db_session):
+    recipe = make_recipe(db_session)
+    listr_meal_plan_repo.upsert(db_session, date(2026, 9, 17), recipe_id=recipe.id, is_cooked=True, notes="lekker")
+    db_session.commit()
+
+    response = client.post("/api/listr/meal-plan/2026-09-17/move", json={"to": "2026-09-19"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["date"] == "2026-09-19"
+    assert body["recipe_id"] == recipe.id
+    assert body["is_cooked"] is True
+    assert body["notes"] == "lekker"
+    assert listr_meal_plan_repo.get_by_date(db_session, date(2026, 9, 17)) is None
+
+
+def test_moving_a_day_onto_a_planned_day_is_refused_and_changes_nothing(client, db_session):
+    listr_meal_plan_repo.upsert(db_session, date(2026, 9, 17), recipe_id=None, is_cooked=False, notes="a")
+    listr_meal_plan_repo.upsert(db_session, date(2026, 9, 18), recipe_id=None, is_cooked=False, notes="b")
+    db_session.commit()
+
+    response = client.post("/api/listr/meal-plan/2026-09-17/move", json={"to": "2026-09-18"})
+
+    assert response.status_code == 409
+    assert listr_meal_plan_repo.get_by_date(db_session, date(2026, 9, 17)).notes == "a"
+    assert listr_meal_plan_repo.get_by_date(db_session, date(2026, 9, 18)).notes == "b"
+
+
+def test_moving_an_empty_day_is_a_404(client):
+    response = client.post("/api/listr/meal-plan/2026-09-17/move", json={"to": "2026-09-18"})
+
+    assert response.status_code == 404
+
+
+def test_moving_a_day_to_itself_changes_nothing(client, db_session):
+    listr_meal_plan_repo.upsert(db_session, date(2026, 9, 17), recipe_id=None, is_cooked=False, notes="a")
+    db_session.commit()
+
+    response = client.post("/api/listr/meal-plan/2026-09-17/move", json={"to": "2026-09-17"})
+
+    assert response.status_code == 200
+    assert response.json()["date"] == "2026-09-17"
+
+
 # -- popularity -------------------------------------------------------------------------------
 
 

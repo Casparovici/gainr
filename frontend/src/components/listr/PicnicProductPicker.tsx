@@ -8,6 +8,7 @@ import { formatEur } from "../../utils/format";
 import ModalOverlay from "../ModalOverlay";
 import { inputClass } from "../ui/kit";
 import PicnicThumb from "./PicnicThumb";
+import { t } from "../../i18n";
 
 /** Search Picnic's own catalog and pick which product a listr catalog item means -- a
  * one-time action per item (see docs/adr/0011-listr-picnic-integration.md), remembered from
@@ -68,8 +69,8 @@ export default function PicnicProductPicker({
           setQuery(itemName);
           setOpen(true);
         }}
-        title={mappedName ? `Picnic: ${mappedName} (klik om te wijzigen)` : "Koppel aan Picnic-product"}
-        aria-label={mappedName ? `Picnic: ${mappedName}` : "Koppel aan Picnic-product"}
+        title={mappedName ? t("Picnic: {name} (klik om te wijzigen)", { name: mappedName }) : t("Koppel aan Picnic-product")}
+        aria-label={mappedName ? `Picnic: ${mappedName}` : t("Koppel aan Picnic-product")}
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
           mappedName ? "text-emerald-600 hover:text-emerald-700" : "text-ui-faint hover:text-ui-muted"
         }`}
@@ -84,16 +85,14 @@ export default function PicnicProductPicker({
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <h2 className="m-0 truncate font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">Picnic-product</h2>
-              <p className="m-0 truncate text-sm text-ui-muted">
-                Voor {itemName}
-                {mappedName && ` · nu: ${mappedName}`}
+              <h2 className="m-0 truncate font-display text-xl font-bold tracking-[-0.02em] text-ui-ink">{t("Picnic-product")}</h2>
+              <p className="m-0 truncate text-sm text-ui-muted">{t("Voor {itemName}", { itemName: itemName })}{mappedName && ` · ${t("nu: {name}", { name: mappedName })}`}
               </p>
             </div>
             <button
               type="button"
               onClick={close}
-              aria-label="Sluiten"
+              aria-label={t("Sluiten")}
               className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ui-muted hover:text-ui-ink"
             >
               <X className="h-5 w-5" strokeWidth={2} />
@@ -106,20 +105,20 @@ export default function PicnicProductPicker({
             enterKeyHint="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Zoek op Picnic…"
-            aria-label="Zoek op Picnic"
+            placeholder={t("Zoek op Picnic…")}
+            aria-label={t("Zoek op Picnic")}
             className={inputClass}
           />
 
           <div className="-mx-1 min-h-0 flex-1 overflow-y-auto">
             {trimmed.length <= 1 ? (
-              <p className="m-0 px-1 py-2 text-sm text-ui-muted">Typ om te zoeken…</p>
+              <p className="m-0 px-1 py-2 text-sm text-ui-muted">{t("Typ om te zoeken…")}</p>
             ) : searchQuery.isLoading ? (
-              <p className="m-0 px-1 py-2 text-sm text-ui-muted">Zoeken…</p>
+              <p className="m-0 px-1 py-2 text-sm text-ui-muted">{t("Zoeken…")}</p>
             ) : searchQuery.isError ? (
-              <p className="m-0 px-1 py-2 text-sm text-ui-late">Zoeken mislukt. Probeer het opnieuw.</p>
+              <p className="m-0 px-1 py-2 text-sm text-ui-late">{t("Zoeken mislukt. Probeer het opnieuw.")}</p>
             ) : searchQuery.data?.length === 0 ? (
-              <p className="m-0 px-1 py-2 text-sm text-ui-muted">Niets gevonden. Probeer een ander woord.</p>
+              <p className="m-0 px-1 py-2 text-sm text-ui-muted">{t("Niets gevonden. Probeer een ander woord.")}</p>
             ) : (
               <ul className="m-0 list-none divide-y divide-ui-border p-0">
                 {searchQuery.data?.map((product) => {
@@ -152,7 +151,7 @@ export default function PicnicProductPicker({
               </ul>
             )}
           </div>
-          {mapMutation.isError && <p className="m-0 text-sm text-ui-late">Koppelen is mislukt. Probeer het opnieuw.</p>}
+          {mapMutation.isError && <p className="m-0 text-sm text-ui-late">{t("Koppelen is mislukt. Probeer het opnieuw.")}</p>}
         </ModalOverlay>
       )}
     </>

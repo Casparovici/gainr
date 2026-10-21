@@ -50,7 +50,8 @@ describe("AssetSymbolPicker", () => {
 
     // The lookup waits out a typing debounce first; give it room on a busy test run.
     expect(await screen.findByText(/First Trust NASDAQ Technology/, {}, { timeout: 8000 })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /TDIV · NASDAQ/ })).toBeChecked();
+    // The exact match is picked in an effect just after the list renders.
+    await vi.waitFor(() => expect(screen.getByRole("radio", { name: /TDIV · NASDAQ/ })).toBeChecked());
 
     await userEvent.click(screen.getByRole("radio", { name: /TDIV\.AS · Amsterdam/ }));
 
@@ -61,7 +62,8 @@ describe("AssetSymbolPicker", () => {
     vi.mocked(api.lookupAsset).mockResolvedValue({ query: "IQQW", exact: false, matches: [XETRA] });
     const onPick = renderPicker("IQQW");
 
-    expect(await screen.findByRole("radio", { name: /IQQW\.DE · XETRA/ }, { timeout: 8000 })).toBeChecked();
+    const radio = await screen.findByRole("radio", { name: /IQQW\.DE · XETRA/ }, { timeout: 8000 });
+    await vi.waitFor(() => expect(radio).toBeChecked());
     expect(onPick).toHaveBeenCalledWith("IQQW.DE");
   });
 

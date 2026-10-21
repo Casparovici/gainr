@@ -1,0 +1,8 @@
+# Backend lint, run in CI. A deliberately small rule set to start from: syntax errors (E9) and
+# pyflakes (F: undefined names, unused imports and variables, ...), the findings that are bugs or
+# dead code rather than style. Widen it a rule family at a time, fixing what it finds.
+target-version = "py313"
+line-length = 120
+
+[lint]
+select = ["E9", "F"]

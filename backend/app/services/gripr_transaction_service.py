@@ -22,8 +22,15 @@ from sqlalchemy.orm import Session
 
 from app.models.gripr_category import GriprCategoryKind
 from app.models.gripr_transaction import GriprTransaction, GriprTransactionType
-from app.repositories import gripr_account_repo, gripr_category_repo, gripr_transaction_repo
-from app.services import gripr_portfolio_link_service
+from app.repositories import (
+    gripr_account_repo,
+    gripr_category_repo,
+    gripr_depreciation_repo,
+    gripr_transaction_attachment_repo,
+    gripr_transaction_repo,
+)
+from app.services import gripr_depreciation_service, gripr_portfolio_link_service
+from app.services.errors import InvalidRequest
 
 
 class InvalidRefundError(ValueError):
@@ -125,7 +132,9 @@ def _normalize_expected(fields: dict, current: GriprTransaction | None = None) -
 def create_transaction(db: Session, **fields) -> GriprTransaction:
     _normalize_refund(db, fields)
     _normalize_expected(fields)
+    depreciations = fields.pop("depreciations", None) or []
     txn = gripr_transaction_repo.create_transaction(db, **fields)
+    gripr_depreciation_service.attach(db, txn, depreciations)
     apply_effects(db, txn)
     return txn
 
@@ -144,6 +153,7 @@ def apply_effects(db: Session, txn: GriprTransaction) -> None:
         return
     effect = _loan_effect(db, txn.category_id, txn.type, txn.amount)
     _apply(db, effect, sign=1)
+    gripr_depreciation_service.apply(db, txn, sign=1)
     _sync_portfolio_mirror(db, txn)
     txn.effects_applied = True
     db.flush()
@@ -172,6 +182,8 @@ def delete_transaction(db: Session, txn: GriprTransaction) -> None:
     if txn.effects_applied:
         effect = _loan_effect(db, txn.category_id, txn.type, txn.amount)
         _apply(db, effect, sign=-1)
+        gripr_depreciation_service.apply(db, txn, sign=-1)
+    gripr_depreciation_repo.delete_for_transaction(db, txn.id)
     gripr_portfolio_link_service.remove_mirror(db, txn)
     # Refunds of a deleted expense stay -- the money really came in -- they just lose the link.
     for refund in gripr_transaction_repo.list_refunds_of(db, txn.id):
@@ -186,3 +198,88 @@ def _sync_portfolio_mirror(db: Session, txn: GriprTransaction) -> None:
     balance would otherwise sit one transfer behind until the next daily sync."""
     gripr_portfolio_link_service.sync_mirror(db, txn)
     gripr_portfolio_link_service.sync_balance(db)
+
+
+@dataclass
+class BulkResult:
+    updated: int
+    skipped: int
+
+
+def bulk_set_category(db: Session, txns: list[GriprTransaction], category_id: int) -> BulkResult:
+    """Files every selected transaction under one category, one by one through update_transaction
+    so a loan-linked category gets its effect. A row the category can't apply to is skipped rather
+    than forced: a transfer (never categorised), or a type that doesn't match the category's kind
+    (an income category on an expense)."""
+    category = gripr_category_repo.get_category(db, category_id)
+    updated = skipped = 0
+    for txn in txns:
+        expected = GriprCategoryKind.INCOME if txn.type == GriprTransactionType.INCOME else GriprCategoryKind.EXPENSE
+        if category is None or txn.type == GriprTransactionType.TRANSFER or category.kind != expected:
+            skipped += 1
+            continue
+        try:
+            update_transaction(db, txn, category_id=category_id)
+        except InvalidRefundError:
+            skipped += 1
+            continue
+        updated += 1
+    return BulkResult(updated, skipped)
+
+
+def bulk_set_account(db: Session, txns: list[GriprTransaction], account_id: int) -> BulkResult:
+    """Moves every selected transaction to another account (the paying side of a transfer). A
+    transfer whose other side already is that account is skipped -- it would move money to itself."""
+    updated = skipped = 0
+    for txn in txns:
+        if txn.counter_account_id == account_id:
+            skipped += 1
+            continue
+        update_transaction(db, txn, account_id=account_id)
+        updated += 1
+    return BulkResult(updated, skipped)
+
+
+def bulk_delete(db: Session, txns: list[GriprTransaction]) -> BulkResult:
+    for txn in txns:
+        delete_transaction(db, txn)
+    return BulkResult(len(txns), 0)
+
+
+def bulk_apply(
+    db: Session, action: str, transaction_ids: list[int], category_id: int | None, account_id: int | None
+) -> BulkResult:
+    """One action on several transactions: "set_category", "set_account" or "delete". All or
+    nothing: an unknown id, or a missing category or account, refuses the whole request."""
+    ids = list(dict.fromkeys(transaction_ids))
+    txns = [gripr_transaction_repo.get_transaction(db, i) for i in ids]
+    missing = [i for i, t in zip(ids, txns) if t is None]
+    if missing:
+        raise InvalidRequest(f"Unknown transaction(s): {missing}")
+    if action == "set_category":
+        if category_id is None or gripr_category_repo.get_category(db, category_id) is None:
+            raise InvalidRequest("Pick a category")
+        return bulk_set_category(db, txns, category_id)
+    if action == "set_account":
+        if account_id is None or gripr_account_repo.get_account(db, account_id) is None:
+            raise InvalidRequest("Pick an account")
+        return bulk_set_account(db, txns, account_id)
+    return bulk_delete(db, txns)
+
+
+@dataclass
+class TransactionPage:
+    items: list[GriprTransaction]
+    total: int
+    refunded: dict[int, Decimal]  # expense id -> refunded so far
+    attachment_counts: dict[int, int]
+
+
+def list_page(db: Session, *, category_id: int | None, **filters) -> TransactionPage:
+    """A page of the Transactions list. A parent category rolls up its subcategories, the same
+    way the budget's "spent" does, so picking "Groceries" shows everything filed under it."""
+    category_ids = gripr_category_repo.descendant_ids(db, category_id) if category_id is not None else None
+    items, total = gripr_transaction_repo.list_transactions(db, category_ids=category_ids, **filters)
+    refunded = gripr_transaction_repo.refunded_totals(db, [t.id for t in items if t.type == GriprTransactionType.EXPENSE])
+    counts = gripr_transaction_attachment_repo.counts_by_transaction(db, [t.id for t in items])
+    return TransactionPage(items=items, total=total, refunded=refunded, attachment_counts=counts)

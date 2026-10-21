@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.transaction import Transaction, TransactionType
 from app.repositories import asset_repo, transaction_repo
+from app.services.money_weighted_return import money_weighted_return
 from app.services.price_service import price_service
 
 ZERO = Decimal(0)
@@ -32,6 +33,26 @@ class SeriesPoint:
     # investment performance only — which is what can honestly be held up against an index.
     # `value_eur` alone can't: it rises when money is paid in, which isn't a return.
     return_index: Decimal = Decimal(100)
+
+
+@dataclass
+class _HeldToday:
+    """One holding as the series valued it on its last day, at the daily close and its FX
+    rate -- what the live overlay re-prices without replaying the ledger. The asset by id, not
+    the row: the cache outlives the request whose session loaded it, and each request reads the
+    asset (and its latest quote) through its own session."""
+
+    asset_id: int
+    quantity: Decimal
+    price_native: Decimal
+    fx_rate: Decimal
+
+
+@dataclass
+class _Series:
+    points: list[SeriesPoint]
+    held_today: list[_HeldToday]
+    flow_today: Decimal  # deposits less withdrawals on the last day
 
 
 class _AsOfSeries:
@@ -62,7 +83,7 @@ class PerformanceService:
         # from scratch, and any transaction write invalidates it. Keyed by portfolio since each
         # one's series is computed from a disjoint slice of the ledger. See docs/adr/0001 and
         # docs/adr/0019.
-        self._cache: dict[int, tuple[date, list[SeriesPoint]]] = {}
+        self._cache: dict[int, tuple[date, _Series]] = {}
 
     def invalidate_cache(self, portfolio_id: int | None = None) -> None:
         """Clears one portfolio's cached series, or every portfolio's when none is given (a
@@ -73,18 +94,60 @@ class PerformanceService:
             self._cache.pop(portfolio_id, None)
 
     def get_full_series(self, db: Session, portfolio_id: int) -> list[SeriesPoint]:
+        """The daily series on closes only -- every day, today included, valued at the latest
+        close. What a report about finished days wants; the Home chart wants `get_live_series`."""
+        return self._series(db, portfolio_id).points
+
+    def get_live_series(self, db: Session, portfolio_id: int) -> list[SeriesPoint]:
+        """The daily series with today's point re-priced at the hourly live quotes (ADR 0047),
+        so the chart, the 1D change and the YTD figure agree with the live total value. Earlier
+        days stay on closes. Recomputed per request from the cached series: a few multiplications,
+        and never stale by more than the quotes themselves."""
+        series = self._series(db, portfolio_id)
+        if not series.points or not series.held_today:
+            return series.points
+
+        assets_by_id = asset_repo.get_assets_by_ids(db, [held.asset_id for held in series.held_today])
+        delta = ZERO
+        live_fx: dict[str, Decimal] = {}
+        for held in series.held_today:
+            asset = assets_by_id.get(held.asset_id)
+            if asset is None:
+                continue
+            live = price_service.get_live_quote(db, asset)
+            price_native = live.price if live is not None else held.price_native
+            currency = asset.native_currency
+            if currency not in live_fx:
+                live_fx[currency] = held.fx_rate if currency == "EUR" else price_service.get_fx_rate(db, currency)
+            delta += price_native * live_fx[currency] * held.quantity - held.price_native * held.fx_rate * held.quantity
+        if delta == ZERO:
+            return series.points
+
+        last = series.points[-1]
+        value = last.value_eur + delta
+        return_index = last.return_index
+        if len(series.points) >= 2:
+            prev = series.points[-2]
+            return_index = prev.return_index
+            if prev.value_eur > ZERO:
+                daily_return = (value - series.flow_today) / prev.value_eur
+                if daily_return > ZERO:
+                    return_index *= daily_return
+        return [*series.points[:-1], SeriesPoint(date=last.date, value_eur=value, return_index=return_index)]
+
+    def _series(self, db: Session, portfolio_id: int) -> _Series:
         today = date.today()
         cached = self._cache.get(portfolio_id)
         if cached is not None and cached[0] == today:
             return cached[1]
-        points = self._compute_full_series(db, portfolio_id)
-        self._cache[portfolio_id] = (today, points)
-        return points
+        series = self._compute_full_series(db, portfolio_id)
+        self._cache[portfolio_id] = (today, series)
+        return series
 
-    def _compute_full_series(self, db: Session, portfolio_id: int) -> list[SeriesPoint]:
+    def _compute_full_series(self, db: Session, portfolio_id: int) -> _Series:
         transactions = transaction_repo.list_all_transactions(db, portfolio_id)
         if not transactions:
-            return []
+            return _Series([], [], ZERO)
 
         transactions = sorted(transactions, key=lambda t: (t.date, t.id))
         inception = transactions[0].date
@@ -133,6 +196,8 @@ class PerformanceService:
 
         return_index = Decimal(100)
         prev_value: Decimal | None = None
+        held_today: list[_HeldToday] = []
+        flow_today = ZERO
 
         day = inception
         while day <= today:
@@ -183,6 +248,8 @@ class PerformanceService:
                 if fx_rate is None:
                     fx_rate = Decimal(1)
                 holdings_value += price_native * fx_rate * qty
+                if day == today:
+                    held_today.append(_HeldToday(asset_id, qty, price_native, fx_rate))
 
             value = cash_eur + holdings_value
 
@@ -195,12 +262,13 @@ class PerformanceService:
             prev_value = value
 
             points.append(SeriesPoint(date=day, value_eur=value, return_index=return_index))
+            flow_today = external_flow
             day += timedelta(days=1)
 
-        return points
+        return _Series(points, held_today, flow_today)
 
     def get_range(self, db: Session, portfolio_id: int, range_key: str) -> dict:
-        series = self.get_full_series(db, portfolio_id)
+        series = self.get_live_series(db, portfolio_id)
         if not series:
             return {
                 "range": range_key, "points": [], "start_value_eur": None,
@@ -221,9 +289,15 @@ class PerformanceService:
 
         start_value = slice_points[0].value_eur
         end_value = slice_points[-1].value_eur
-        net_flow = self._net_external_flow(db, portfolio_id, slice_points[0].date, slice_points[-1].date)
+        start, end = slice_points[0].date, slice_points[-1].date
+        flows = self._external_flows(db, portfolio_id, start, end)
+        net_flow = sum((amount for _, amount in flows), ZERO)
 
         change_eur = end_value - start_value - net_flow
+        # A day is too short for a rate to mean anything; the chart's 1D change says it all.
+        mwr_pct, mwr_yearly_pct = (
+            money_weighted_return(start, start_value, flows, end, end_value) if range_key != "1D" else (None, None)
+        )
 
         # Percentages come from the time-weighted index rebased to the start of the range, so
         # the headline figure and the chart's plotted line are the same number, and both are
@@ -245,6 +319,8 @@ class PerformanceService:
             "end_value_eur": end_value,
             "change_eur": change_eur,
             "change_pct": change_pct,
+            "mwr_pct": mwr_pct,
+            "mwr_yearly_pct": mwr_yearly_pct,
         }
 
     @staticmethod
@@ -253,16 +329,17 @@ class PerformanceService:
         return filtered if filtered else series[-1:]
 
     @staticmethod
-    def _net_external_flow(db: Session, portfolio_id: int, start: date, end: date) -> Decimal:
-        transactions = transaction_repo.list_all_transactions(db, portfolio_id)
-        flow = ZERO
-        for txn in transactions:
+    def _external_flows(db: Session, portfolio_id: int, start: date, end: date) -> list[tuple[date, Decimal]]:
+        """Deposits (positive) and withdrawals (negative) after `start`, up to and including
+        `end`: the start value already holds whatever moved on the first day."""
+        flows = []
+        for txn in transaction_repo.list_all_transactions(db, portfolio_id):
             if start < txn.date <= end:
                 if txn.type == TransactionType.DEPOSIT:
-                    flow += txn.total_eur
+                    flows.append((txn.date, txn.total_eur))
                 elif txn.type == TransactionType.WITHDRAW:
-                    flow -= txn.total_eur
-        return flow
+                    flows.append((txn.date, -txn.total_eur))
+        return flows
 
 
 def price_service_history_rows(db: Session, asset_id: int, start: date, end: date):

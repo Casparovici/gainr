@@ -6,6 +6,8 @@ import SortableHeader from "./SortableHeader";
 import { useTableSort, type SortAccessors } from "../hooks/useTableSort";
 import type { ClosedPosition } from "../api/types";
 import { formatDate, formatEur, pnlColorClass, toNumber } from "../utils/format";
+import { QueryError } from "./ui/QueryError";
+import { t } from "../i18n";
 
 type SortKey = "name" | "sold_on" | "bought" | "sold" | "realized";
 
@@ -17,14 +19,26 @@ const ACCESSORS: SortAccessors<ClosedPosition, SortKey> = {
   realized: (p) => toNumber(p.realized_pnl_eur),
 };
 
-export default function ClosedPositions({ positions, isLoading }: { positions: ClosedPosition[] | undefined; isLoading: boolean }) {
+export default function ClosedPositions({
+  positions,
+  isLoading,
+  isError = false,
+  onRetry,
+}: {
+  positions: ClosedPosition[] | undefined;
+  isLoading: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
+}) {
   const { rows, sort, toggle } = useTableSort(positions, ACCESSORS, { key: "sold_on", direction: "desc" });
   const [scrolled, setScrolled] = useState(false);
 
   return (
     <CollapsibleCard
+      cardClassName="rounded-2xl border border-ui-border bg-ui-surface"
       storageKey="closed-positions"
-      title={`Closed positions ${positions ? `(${positions.length})` : ""}`}
+      title={positions ? t("Closed positions ({n})", { n: positions.length }) : t("Closed positions")}
+
       defaultOpen={false}
       bodyClassName="border-t border-slate-200"
     >
@@ -35,25 +49,27 @@ export default function ClosedPositions({ positions, isLoading }: { positions: C
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-              <SortableHeader label="Name" sortKey="name" sort={sort} onToggle={toggle} className="pinned-col" />
-              <SortableHeader label="Held" sortKey="sold_on" sort={sort} onToggle={toggle} />
-              <SortableHeader label="Bought" sortKey="bought" sort={sort} onToggle={toggle} align="right" />
-              <SortableHeader label="Sold" sortKey="sold" sort={sort} onToggle={toggle} align="right" />
-              <SortableHeader label="Realized P&L" sortKey="realized" sort={sort} onToggle={toggle} align="right" />
+              <SortableHeader label={t("Name")} sortKey="name" sort={sort} onToggle={toggle} className="pinned-col" />
+              <SortableHeader label={t("Held")} sortKey="sold_on" sort={sort} onToggle={toggle} />
+              <SortableHeader label={t("Bought")} sortKey="bought" sort={sort} onToggle={toggle} align="right" />
+              <SortableHeader label={t("Sold")} sortKey="sold" sort={sort} onToggle={toggle} align="right" />
+              <SortableHeader label={t("Realized P&L")} sortKey="realized" sort={sort} onToggle={toggle} align="right" />
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
-                  Loading…
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">{t("Loading…")}</td>
+              </tr>
+            ) : isError ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center">
+                  <QueryError message={t("Couldn't load closed positions.")} onRetry={onRetry} />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
-                  No closed positions
-                </td>
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">{t("No closed positions")}</td>
               </tr>
             ) : (
               rows.map((p) => (

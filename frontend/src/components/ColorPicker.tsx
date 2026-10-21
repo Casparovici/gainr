@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { PICKER_COLORS } from "../utils/palette";
+import { t } from "../i18n";
 
 /** A small swatch popover for overriding a colour. Wraps whatever badge/trigger is passed in;
  * clicking a swatch picks it and closes, the × resets to the derived default (or `null`, for a
@@ -40,7 +41,7 @@ export default function ColorPicker({
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        title="Change colour"
+        title={t("Change colour")}
       >
         {trigger}
       </button>
@@ -71,7 +72,7 @@ export default function ColorPicker({
               setOpen(false);
             }}
             className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 text-xs text-slate-400 hover:bg-slate-50"
-            title="Reset to default"
+            title={t("Reset to default")}
           >
             ×
           </button>

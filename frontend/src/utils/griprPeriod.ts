@@ -1,3 +1,5 @@
+import { dateLocale, t } from "../i18n";
+
 /** JS port of backend/app/services/gripr_period_service.py's `period_bounds` — kept in exact
  * sync with it so the frontend never disagrees with the backend about which period a date
  * falls in. Safe with plain `Date` arithmetic (no day-of-month rollover) precisely because
@@ -69,6 +71,6 @@ export function periodLabel(periodStartIso: string, startDay: number): string {
 export function periodTitle(periodStartIso: string, startDay: number): string {
   const { number, year } = periodNumber(periodStartIso, startDay);
   const { start, end } = periodBounds(periodStartIso, startDay);
-  const short = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short" });
-  return `Period ${number}, ${year} · ${short(start)} – ${short(end)}`;
+  const short = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString(dateLocale("en-IE"), { day: "numeric", month: "short" });
+  return t("Period {number}, {year} · {start} – {end}", { number, year, start: short(start), end: short(end) });
 }

@@ -3,6 +3,8 @@ portfolio.xlsx
 portfolio_*.xlsx
 personal_trx.csv
 backend/portfolio.db
+backend/portfolio.db-wal
+backend/portfolio.db-shm
 backend/portfolio.db.bak*
 backend/backups/
 
@@ -16,14 +18,13 @@ backend/**/__pycache__/
 backend/*.egg-info/
 backend/.pytest_cache/
 
-mcp-server/.venv/
-mcp-server/__pycache__/
-mcp-server/.pytest_cache/
-
 frontend/node_modules/
 frontend/dist/
+frontend/dist.next/
+frontend/dist.prev/
 frontend/*.tsbuildinfo
 
 .DS_Store
 *.log
 .coverage
+coverage.json

@@ -8,6 +8,8 @@ import { apiToDecimalInput, decimalInputToApi, numberToDecimalInput, parseDecima
 import AssetCombobox from "./AssetCombobox";
 import AssetSymbolPicker from "./AssetSymbolPicker";
 import ModalOverlay from "./ModalOverlay";
+import TransactionAttachments from "./TransactionAttachments";
+import { t as tr } from "../i18n";
 
 const NEW_ASSET_CLASSES = ["equity", "crypto", "commodity"] as const;
 
@@ -30,19 +32,19 @@ function shapeFor(type: TransactionType): TypeShape {
   switch (type) {
     case "Buy":
     case "Sell":
-      return { asset: true, quantity: true, trade: true, amountLabel: "Total (EUR)", brokerLabel: "Broker", toBroker: false };
+      return { asset: true, quantity: true, trade: true, amountLabel: tr("Total (EUR)"), brokerLabel: tr("Broker"), toBroker: false };
     case "Dividend":
       return {
         asset: true,
         quantity: false,
         trade: false,
-        amountLabel: "Dividend amount (EUR)",
-        brokerLabel: "Broker",
+        amountLabel: tr("Dividend amount (EUR)"),
+        brokerLabel: tr("Broker"),
         toBroker: false,
       };
     case "Staking":
       // Reward units arriving at zero cost — quantity matters, money doesn't.
-      return { asset: true, quantity: true, trade: false, amountLabel: "Value (EUR)", brokerLabel: "Broker", toBroker: false };
+      return { asset: true, quantity: true, trade: false, amountLabel: tr("Value (EUR)"), brokerLabel: tr("Broker"), toBroker: false };
     case "Transfer":
       // Cash moving between two of the reader's own brokers -- not money entering or leaving
       // the portfolio, so it's shaped like Deposit/Withdraw (no asset, no quantity) plus a
@@ -51,12 +53,12 @@ function shapeFor(type: TransactionType): TypeShape {
         asset: false,
         quantity: false,
         trade: false,
-        amountLabel: "Amount (EUR)",
-        brokerLabel: "From broker",
+        amountLabel: tr("Amount (EUR)"),
+        brokerLabel: tr("From broker"),
         toBroker: true,
       };
     default: // Deposit, Withdraw, Interest, Broker Fee — pure cash movements
-      return { asset: false, quantity: false, trade: false, amountLabel: "Amount (EUR)", brokerLabel: "Broker", toBroker: false };
+      return { asset: false, quantity: false, trade: false, amountLabel: tr("Amount (EUR)"), brokerLabel: tr("Broker"), toBroker: false };
   }
 }
 
@@ -169,6 +171,7 @@ export default function TransactionForm({
   assets,
   brokers,
   initial,
+  template,
   defaultAssetId,
   defaultType,
   portfolioId,
@@ -179,26 +182,33 @@ export default function TransactionForm({
   assets: Asset[];
   brokers: string[];
   initial: Transaction | undefined;
+  /** A new transaction pre-filled from an existing one ("Duplicate"), dated today. Ignored when
+   * editing. Its figures are kept as they were rather than recomputed. */
+  template?: Transaction;
   defaultAssetId?: number;
   defaultType?: TransactionType;
   /** Which portfolio a new transaction is created in -- always the currently-selected one, not
    * a field the form itself exposes. Ignored when editing (`initial` already has its own). */
   portfolioId: number;
   onCancel: () => void;
-  onSubmit: (input: TransactionInput) => void;
+  /** `files` are the attachments picked on a new transaction, to upload once it exists; always
+   * empty when editing, where attachments are added and removed on the spot. */
+  onSubmit: (input: TransactionInput, files: File[]) => void;
   isSubmitting: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormState>(toFormState(initial, defaultAssetId, defaultType));
-  // New transactions start fully auto-calculated; editing an existing one respects its
-  // stored values until the user explicitly changes an upstream field or hits reset.
-  const [autoFields, setAutoFields] = useState<Set<ComputedField>>(new Set(initial ? [] : COMPUTED_FIELDS));
+  const source = initial ?? (template ? { ...template, date: todayLocalISO() } : undefined);
+  const [form, setForm] = useState<FormState>(toFormState(source, defaultAssetId, defaultType));
+  // New transactions start fully auto-calculated; editing an existing one (or duplicating it)
+  // respects its stored values until the user explicitly changes an upstream field or hits reset.
+  const [autoFields, setAutoFields] = useState<Set<ComputedField>>(new Set(source ? [] : COMPUTED_FIELDS));
   const [brokerIsOther, setBrokerIsOther] = useState(() => !!form.broker && !brokers.includes(form.broker));
   const [toBrokerIsOther, setToBrokerIsOther] = useState(() => !!form.to_broker && !brokers.includes(form.to_broker));
   const [assetIsNew, setAssetIsNew] = useState(false);
   const [newAsset, setNewAsset] = useState<NewAssetState>(EMPTY_NEW_ASSET);
   const [isCreatingAsset, setIsCreatingAsset] = useState(false);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   // Picking a listing also fills in its name -- unless the reader typed one: a name filled in from
   // an earlier pick follows the new pick, so switching TDIV -> TDIV.AS doesn't keep First Trust's.
   const autoName = useRef<string | null>(null);
@@ -260,10 +270,8 @@ export default function TransactionForm({
         type="button"
         onClick={() => resetToAuto(key)}
         className="font-normal normal-case text-slate-400 hover:text-slate-700"
-        title="Recalculate automatically"
-      >
-        ↺ auto
-      </button>
+        title={tr("Recalculate automatically")}
+      >{tr("↺ auto")}</button>
     );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -273,7 +281,7 @@ export default function TransactionForm({
     let assetId = form.asset_id ? Number(form.asset_id) : null;
     if (shape.asset && assetIsNew) {
       if (!newAsset.ticker.trim() || !newAsset.name.trim()) {
-        setAssetError("Ticker and name are required for a new asset.");
+        setAssetError(tr("Ticker and name are required for a new asset."));
         return;
       }
       setIsCreatingAsset(true);
@@ -288,7 +296,7 @@ export default function TransactionForm({
         assetId = created.id;
         queryClient.invalidateQueries({ queryKey: ["assets"] });
       } catch {
-        setAssetError("Couldn't create that asset — check the fields and try again.");
+        setAssetError(tr("Couldn't create that asset — check the fields and try again."));
         return;
       } finally {
         setIsCreatingAsset(false);
@@ -311,16 +319,16 @@ export default function TransactionForm({
       to_broker: shape.toBroker ? form.to_broker || null : null,
       notes: form.notes || null,
     };
-    onSubmit(payload);
+    onSubmit(payload, initial ? [] : pendingFiles);
   };
 
   return (
     <ModalOverlay onClose={onCancel} cardClassName="w-full max-w-lg rounded-lg bg-white p-5 shadow-lg">
-        <h2 className="text-base font-semibold text-slate-900">{initial ? "Edit transaction" : "Add transaction"}</h2>
+        <h2 className="text-base font-semibold text-slate-900">{initial ? tr("Edit transaction") : tr("Add transaction")}</h2>
 
         <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-2 gap-3">
           {field(
-            "Date",
+            tr("Date"),
             <input
               type="date"
               required
@@ -330,11 +338,11 @@ export default function TransactionForm({
             />,
           )}
           {field(
-            "Type",
+            tr("Type"),
             <select value={form.type} onChange={(e) => changeType(e.target.value as TransactionType)} className={inputClass}>
               {TRANSACTION_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {tr(t)}
                 </option>
               ))}
             </select>,
@@ -342,7 +350,7 @@ export default function TransactionForm({
 
           {shape.asset &&
             field(
-              "Asset",
+              tr("Asset"),
               assetIsNew ? (
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1">
@@ -351,7 +359,7 @@ export default function TransactionForm({
                       value={newAsset.ticker}
                       onChange={(e) => setNewAsset((a) => ({ ...a, ticker: e.target.value.toUpperCase() }))}
                       className={`${inputClass} min-w-0 flex-1`}
-                      placeholder="Ticker (e.g. AAPL)"
+                      placeholder={tr("Ticker (e.g. AAPL)")}
                     />
                     <button
                       type="button"
@@ -361,7 +369,7 @@ export default function TransactionForm({
                         setAssetError(null);
                       }}
                       className="px-1 text-xs text-slate-400 hover:text-slate-700"
-                      title="Choose an existing asset instead"
+                      title={tr("Choose an existing asset instead")}
                     >
                       ✕
                     </button>
@@ -371,7 +379,7 @@ export default function TransactionForm({
                     value={newAsset.name}
                     onChange={(e) => setNewAsset((a) => ({ ...a, name: e.target.value }))}
                     className={inputClass}
-                    placeholder="Name"
+                    placeholder={tr("Name")}
                   />
                   <div className="flex gap-1">
                     <select
@@ -417,7 +425,7 @@ export default function TransactionForm({
                   value={form.broker}
                   onChange={(e) => update({ broker: e.target.value })}
                   className={`${inputClass} flex-1`}
-                  placeholder="New broker name"
+                  placeholder={tr("New broker name")}
                 />
                 <button
                   type="button"
@@ -426,7 +434,7 @@ export default function TransactionForm({
                     update({ broker: "" });
                   }}
                   className="px-1 text-xs text-slate-400 hover:text-slate-700"
-                  title="Choose from list instead"
+                  title={tr("Choose from list instead")}
                 >
                   ✕
                 </button>
@@ -444,20 +452,20 @@ export default function TransactionForm({
                 }}
                 className={inputClass}
               >
-                <option value="">— select —</option>
+                <option value="">{tr("— select —")}</option>
                 {brokers.map((b) => (
                   <option key={b} value={b}>
                     {b}
                   </option>
                 ))}
-                <option value={OTHER_BROKER}>Other…</option>
+                <option value={OTHER_BROKER}>{tr("Other…")}</option>
               </select>
             ),
           )}
 
           {shape.toBroker &&
             field(
-              "To broker",
+              tr("To broker"),
               toBrokerIsOther ? (
                 <div className="flex gap-1">
                   <input
@@ -466,7 +474,7 @@ export default function TransactionForm({
                     value={form.to_broker}
                     onChange={(e) => update({ to_broker: e.target.value })}
                     className={`${inputClass} flex-1`}
-                    placeholder="New broker name"
+                    placeholder={tr("New broker name")}
                   />
                   <button
                     type="button"
@@ -475,7 +483,7 @@ export default function TransactionForm({
                       update({ to_broker: "" });
                     }}
                     className="px-1 text-xs text-slate-400 hover:text-slate-700"
-                    title="Choose from list instead"
+                    title={tr("Choose from list instead")}
                   >
                     ✕
                   </button>
@@ -494,7 +502,7 @@ export default function TransactionForm({
                   }}
                   className={inputClass}
                 >
-                  <option value="">— select —</option>
+                  <option value="">{tr("— select —")}</option>
                   {brokers
                     .filter((b) => b !== form.broker)
                     .map((b) => (
@@ -502,14 +510,14 @@ export default function TransactionForm({
                         {b}
                       </option>
                     ))}
-                  <option value={OTHER_BROKER}>Other…</option>
+                  <option value={OTHER_BROKER}>{tr("Other…")}</option>
                 </select>
               ),
             )}
 
           {shape.quantity &&
             field(
-              "Quantity",
+              tr("Quantity"),
               <input
                 inputMode="decimal"
                 value={form.quantity}
@@ -521,11 +529,11 @@ export default function TransactionForm({
           {shape.trade && (
             <>
               {field(
-                "Price (native ccy)",
+                tr("Price (native ccy)"),
                 <input inputMode="decimal" value={form.price} onChange={(e) => update({ price: e.target.value })} className={inputClass} />,
               )}
               {field(
-                "Local value",
+                tr("Local value"),
                 <input
                   inputMode="decimal"
                   value={form.local_value}
@@ -535,11 +543,11 @@ export default function TransactionForm({
                 resetButton("local_value"),
               )}
               {field(
-                "FX rate",
+                tr("FX rate"),
                 <input inputMode="decimal" value={form.fx_rate} onChange={(e) => update({ fx_rate: e.target.value })} className={inputClass} />,
               )}
               {field(
-                "Value (EUR)",
+                tr("Value (EUR)"),
                 <input
                   inputMode="decimal"
                   value={form.value_eur}
@@ -549,7 +557,7 @@ export default function TransactionForm({
                 resetButton("value_eur"),
               )}
               {field(
-                "Costs (EUR)",
+                tr("Costs (EUR)"),
                 <input inputMode="decimal" value={form.costs} onChange={(e) => update({ costs: e.target.value })} className={inputClass} />,
               )}
             </>
@@ -568,7 +576,11 @@ export default function TransactionForm({
           )}
 
           <div className="col-span-2">
-            {field("Notes", <input value={form.notes} onChange={(e) => update({ notes: e.target.value })} className={inputClass} />)}
+            {field(tr("Notes"), <input value={form.notes} onChange={(e) => update({ notes: e.target.value })} className={inputClass} />)}
+          </div>
+
+          <div className="col-span-2">
+            <TransactionAttachments source={api.transactionAttachments} transactionId={initial?.id ?? null} pending={pendingFiles} onPendingChange={setPendingFiles} />
           </div>
 
           <div className="col-span-2 mt-2 flex justify-end gap-2">
@@ -576,15 +588,13 @@ export default function TransactionForm({
               type="button"
               onClick={onCancel}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
+            >{tr("Cancel")}</button>
             <button
               type="submit"
               disabled={isSubmitting || isCreatingAsset}
               className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
             >
-              {isCreatingAsset ? "Creating asset…" : isSubmitting ? "Saving…" : "Save"}
+              {isCreatingAsset ? tr("Creating asset…") : isSubmitting ? tr("Saving…") : tr("Save")}
             </button>
           </div>
         </form>

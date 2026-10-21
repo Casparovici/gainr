@@ -72,3 +72,33 @@ class FinancialsOut(BaseModel):
     quarter: FinancialPeriodOut | None
     annual: list[FinancialPeriodOut]
     key_metrics: KeyMetricsOut | None
+
+
+class MetricHistoryPointOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    label: str  # "FY2025"
+    value: Decimal
+
+
+class PositionMetricOut(BaseModel):
+    """One line of a position's analyst checklist. `value` and `text` both empty means Yahoo
+    doesn't carry it: `source_hint` says where to look instead."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    unit: str  # pct | multiple | amount | number | text
+    why: str | None  # why this metric matters for this holding
+    value: Decimal | None
+    text: str | None  # for a metric that is a list rather than a figure (top holdings)
+    detail: str | None  # what the figure is, or why there is none
+    history: list[MetricHistoryPointOut]  # oldest first
+    source_hint: str | None
+
+
+class PositionMetricsOut(BaseModel):
+    lens: str | None  # "Growth company"; None when the position has no checklist
+    currency: str | None  # for the "amount" metrics; never converted
+    metrics: list[PositionMetricOut]

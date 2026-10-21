@@ -313,3 +313,59 @@ def test_target_weight_set_in_one_portfolio_does_not_apply_in_another(db_session
 
     assert mine.target_weight_pct == Decimal(20)
     assert theirs.target_weight_pct is None
+
+
+def test_a_holding_is_valued_at_its_live_quote_and_says_when_it_was_quoted(db_session, portfolio_id, monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.services.position_service import held_assets
+    from app.services.price_service import price_service
+
+    now = datetime(2026, 10, 19, 14, 0)
+    monkeypatch.setattr(price_service, "clock", lambda: now)
+    asset = make_asset(db_session)
+    asset.quote_price, asset.quoted_at, asset.quote_checked_at = Decimal("12.5"), datetime(2026, 10, 19, 13, 45), now
+    db_session.add(PriceHistory(asset_id=asset.id, date=date(2026, 10, 16), close_price=Decimal(11)))
+    make_txn(db_session, portfolio_id, asset, TransactionType.BUY, date(2026, 1, 5), quantity=Decimal(4), total_eur=Decimal(40))
+
+    row = next(r for r in position_service.list_position_rows(db_session, portfolio_id) if r.ticker == "ACME")
+
+    assert row.current_price_native == Decimal("12.5")
+    assert row.market_value_eur == Decimal(50)
+    assert row.price_date == date(2026, 10, 19)
+    assert row.price_quoted_at == datetime(2026, 10, 19, 13, 45, tzinfo=timezone.utc)
+    assert [a.ticker for a in held_assets(db_session)] == ["ACME"]
+
+
+def test_day_change_is_in_euros_at_each_days_fx_and_a_share_of_yesterday():
+    from app.services.position_service import day_change
+
+    # 10 shares from $100 to $102 while the dollar went from €0.90 to €0.92.
+    change, pct = day_change(Decimal(10), Decimal(102), Decimal("0.92"), Decimal(100), Decimal("0.90"))
+
+    assert change == Decimal("38.40")  # 938.40 - 900.00
+    assert pct.quantize(Decimal("0.01")) == Decimal("4.27")
+    assert day_change(Decimal(10), Decimal(5), Decimal(1), Decimal(0), Decimal(1)) == (Decimal(50), None)
+
+
+def test_each_holding_carries_its_move_since_yesterdays_close(db_session, portfolio_id):
+    today = date(2026, 10, 20)
+    moved, fresh, unpriced = make_asset(db_session, "MOVE"), make_asset(db_session, "FRESH"), make_asset(db_session, "NOPE")
+    db_session.add_all([
+        PriceHistory(asset_id=moved.id, date=date(2026, 10, 16), close_price=Decimal(10)),  # Friday
+        PriceHistory(asset_id=moved.id, date=today, close_price=Decimal(11)),
+        PriceHistory(asset_id=fresh.id, date=today, close_price=Decimal(7)),  # no close before today
+    ])
+    for asset in (moved, fresh, unpriced):
+        asset.price_checked_at = date.today()  # keep the provider out of it
+        make_txn(db_session, portfolio_id, asset, TransactionType.BUY, date(2026, 1, 5), quantity=Decimal(4),
+                 total_eur=Decimal(20), price=Decimal(5))
+
+    rows = {r.ticker: r for r in position_service.list_position_rows(db_session, portfolio_id, today=today)}
+
+    # Yesterday was Monday 19th: the latest close on or before it is Friday's.
+    assert rows["MOVE"].day_change_eur == Decimal(4)
+    assert rows["MOVE"].day_change_pct == Decimal(10)
+    assert rows["FRESH"].day_change_eur is None
+    assert rows["NOPE"].day_change_eur is None  # valued at its last trade price, a fallback
+    assert rows["CASH"].day_change_eur is None

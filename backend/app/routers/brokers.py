@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.repositories import broker_sync_repo, portfolio_repo
+from app.repositories import broker_sync_repo, gripr_account_repo, portfolio_repo
 from app.schemas.broker import BrokerSettingsUpdate, BrokerStatusOut, BrokerSyncResultOut, BrokerUnmappedOut, NotificationOut
 from app.services import broker_sync_service, gainr_notification_service
 
@@ -39,6 +39,7 @@ def _status(db: Session) -> BrokerStatusOut:
         enabled=c.enabled,
         since=c.since,
         portfolio_id=c.portfolio_id,
+        cashback_account_id=c.cashback_account_id,
         # Stored naive in UTC; sent with the zone so the browser shows its own local time.
         last_synced_at=c.last_synced_at.replace(tzinfo=timezone.utc) if c.last_synced_at else None,
         last_error=c.last_error,
@@ -62,7 +63,12 @@ def update_trading212(payload: BrokerSettingsUpdate, db: Session = Depends(get_d
     since = payload.since or connection.since
     if payload.enabled and since is None:
         since = date_.today()
-    broker_sync_repo.update_connection(db, connection, enabled=payload.enabled, since=since, portfolio_id=portfolio_id)
+    fields = dict(enabled=payload.enabled, since=since, portfolio_id=portfolio_id)
+    if "cashback_account_id" in payload.model_fields_set:
+        if payload.cashback_account_id is not None and gripr_account_repo.get_account(db, payload.cashback_account_id) is None:
+            raise HTTPException(status_code=404, detail="Account not found")
+        fields["cashback_account_id"] = payload.cashback_account_id
+    broker_sync_repo.update_connection(db, connection, **fields)
     db.commit()
     return _status(db)
 
@@ -75,7 +81,7 @@ def sync_trading212(db: Session = Depends(get_db)):
     result = broker_sync_service.sync(db)
     db.commit()
     return BrokerSyncResultOut(
-        booked=result.booked, matched=result.matched, deposits=result.deposits,
+        booked=result.booked, matched=result.matched, deposits=result.deposits, cashbacks=result.cashbacks,
         unmapped=_unmapped(result.unmapped), problems=result.problems,
     )
 

@@ -13,5 +13,5 @@ class GriprPortfolioLink(Base):
     __tablename__ = "pefi_portfolio_links"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    account_id: Mapped[int] = mapped_column(ForeignKey("pefi_accounts.id"), unique=True)
-    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), unique=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("pefi_accounts.id"), unique=True, index=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), unique=True, index=True)

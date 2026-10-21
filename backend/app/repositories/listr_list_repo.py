@@ -96,6 +96,11 @@ def update_list_item(db: Session, item: ListrListItem, **fields) -> ListrListIte
     return item
 
 
+def delete_list(db: Session, grocery_list: ListrList) -> None:
+    db.delete(grocery_list)  # its lines go with it (model relationship)
+    db.flush()
+
+
 def delete_list_item(db: Session, item: ListrListItem) -> None:
     db.delete(item)
     db.flush()

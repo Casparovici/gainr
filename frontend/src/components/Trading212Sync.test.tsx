@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api/client";
+import { griprApi } from "../api/griprClient";
 import type { Asset, BrokerStatus } from "../api/types";
 import Trading212Sync from "./Trading212Sync";
 
@@ -20,9 +21,11 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+vi.mock("../api/griprClient", () => ({ griprApi: { listAccounts: vi.fn() } }));
+
 function status(overrides: Partial<BrokerStatus> = {}): BrokerStatus {
   return {
-    configured: true, enabled: true, since: "2026-10-02", portfolio_id: 1, last_synced_at: null, last_error: null, unmapped: [],
+    configured: true, enabled: true, since: "2026-10-02", portfolio_id: 1, cashback_account_id: null, last_synced_at: null, last_error: null, unmapped: [],
     ...overrides,
   };
 }
@@ -37,7 +40,7 @@ function renderCard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Trading212Sync portfolioId={1} portfolioName="Main" />
+      <Trading212Sync portfolioId={1} portfolioName="Main" defaultOpen />
     </QueryClientProvider>,
   );
 }
@@ -46,17 +49,18 @@ describe("Trading212Sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    vi.mocked(griprApi.listAccounts).mockResolvedValue([]);
     vi.mocked(api.listAssets).mockResolvedValue([asset(1, "GRIDINAV", "Smart Grid ETF"), asset(2, "AMZN", "Amazon")]);
     vi.mocked(api.listPortfolios).mockResolvedValue([{ id: 1, name: "Main", is_archived: false }, { id: 2, name: "Kids", is_archived: false }]);
   });
 
-  it("stays out of the way on a server without a Trading 212 key", async () => {
+  it("says there's nothing to switch on when the server has no Trading 212 key", async () => {
     vi.mocked(api.getTrading212).mockResolvedValue(status({ configured: false, enabled: false }));
 
-    const { container } = renderCard();
+    renderCard();
 
-    await vi.waitFor(() => expect(api.getTrading212).toHaveBeenCalled());
-    await vi.waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(await screen.findByText(/isn't set up on this server/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
   it("says when it can't load", async () => {
@@ -71,9 +75,8 @@ describe("Trading212Sync", () => {
     vi.mocked(api.getTrading212).mockResolvedValue(status({ enabled: false, portfolio_id: null, since: null }));
     vi.mocked(api.updateTrading212).mockResolvedValue(status());
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: "Trading 212" }));
 
-    await userEvent.click(screen.getByRole("checkbox", { name: "Book Trading 212 into Main" }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Book Trading 212 into Main" }));
 
     expect(api.updateTrading212).toHaveBeenCalledWith({ enabled: true, since: null, portfolio_id: 1 });
   });
@@ -118,21 +121,58 @@ describe("Trading212Sync", () => {
 
   it("syncs now and says what happened", async () => {
     vi.mocked(api.getTrading212).mockResolvedValue(status({ last_synced_at: new Date().toISOString() }));
-    vi.mocked(api.syncTrading212).mockResolvedValue({ booked: 2, matched: 1, deposits: 1, unmapped: [], problems: [] });
+    vi.mocked(api.syncTrading212).mockResolvedValue({ booked: 2, matched: 1, deposits: 1, cashbacks: 1, unmapped: [], problems: [] });
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: "Trading 212" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sync now" }));
 
-    expect(await screen.findByText("2 booked, 1 already in gainr, 1 weekly interest/cashback deposit.")).toBeInTheDocument();
+    expect(await screen.findByText("2 booked, 1 already in gainr, 1 weekly interest row, 1 weekly cashback in gripr.")).toBeInTheDocument();
   });
 
   it("points at the other portfolio when it books there", async () => {
     vi.mocked(api.getTrading212).mockResolvedValue(status({ portfolio_id: 2 }));
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: "Trading 212" }));
+    await screen.findByRole("region", { name: "Trading 212" });
 
     expect(await screen.findByText("Kids")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("Trading212Sync folded", () => {
+  it("opens itself for something to link, with the sync as an icon in its header", async () => {
+    vi.mocked(api.getTrading212).mockResolvedValue(status({ unmapped: [GRID] }));
+    vi.mocked(api.listAssets).mockResolvedValue([]);
+    vi.mocked(api.listPortfolios).mockResolvedValue([]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <Trading212Sync portfolioId={1} portfolioName="Main" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/Waiting for an asset/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trading 212" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
+  });
+});
+
+describe("Trading212Sync cashback account", () => {
+  it("sends the weekly cashback to a gripr account, or back to the weekly deposit", async () => {
+    vi.mocked(griprApi.listAccounts).mockResolvedValue([
+      { id: 6, name: "Cashback" } as Awaited<ReturnType<typeof griprApi.listAccounts>>[number],
+    ]);
+    vi.mocked(api.getTrading212).mockResolvedValue(status());
+    vi.mocked(api.updateTrading212).mockResolvedValue(status({ cashback_account_id: 6 }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <Trading212Sync portfolioId={1} portfolioName="Main" defaultOpen />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Cashback account" }), "6");
+
+    expect(api.updateTrading212).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, cashback_account_id: 6, portfolio_id: 1 }));
   });
 });

@@ -8,7 +8,9 @@ import { griprApi } from "../../api/griprClient";
 import type { GriprAccount, GriprCategory, GriprTransaction } from "../../api/griprTypes";
 import GriprTransactionForm from "./GriprTransactionForm";
 
-vi.mock("../../api/griprClient", () => ({ griprApi: { listReceivables: vi.fn() } }));
+vi.mock("../../api/griprClient", () => ({
+  griprApi: { listReceivables: vi.fn(), transactionAttachments: { key: "gripr", invalidates: [], list: vi.fn(), upload: vi.fn(), remove: vi.fn(), url: vi.fn() } },
+}));
 
 function render(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -31,7 +33,7 @@ const categories: GriprCategory[] = [
 const dinner: GriprTransaction = {
   id: 7, date: "2026-09-28", type: "expense", amount: "60.00", account_id: 1, counter_account_id: null,
   category_id: 10, refund_of_id: null, notes: "Dinner with Sam", account_name: "Trade Republic",
-  counter_account_name: null, category_name: "Eten & Drinken", is_recurring: false, refunded_amount: "0", refund_of: null, expected_back: null, expected_from: null, outstanding: "0",
+  counter_account_name: null, category_name: "Eten & Drinken", is_recurring: false, refunded_amount: "0", refund_of: null, expected_back: null, expected_from: null, outstanding: "0", attachment_count: 0,
 };
 
 describe("GriprTransactionForm refunds", () => {
@@ -68,6 +70,7 @@ describe("GriprTransactionForm refunds", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ type: "refund", account_id: 2, category_id: 10, refund_of_id: 7, amount: "30" }),
+      [],
     );
   });
 
@@ -83,7 +86,7 @@ describe("GriprTransactionForm refunds", () => {
     await userEvent.selectOptions(screen.getByLabelText("Received in"), "2");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "refund", refund_of_id: null, category_id: 10 }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "refund", refund_of_id: null, category_id: 10 }), []);
   });
 
   it("lists only expense categories for a refund", async () => {
@@ -111,7 +114,7 @@ describe("GriprTransactionForm refunds", () => {
     await userEvent.type(screen.getByLabelText("From"), "Sam");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "expense", expected_back: "45", expected_from: "Sam" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "expense", expected_back: "45", expected_from: "Sam" }), []);
   });
 
   it("turns incoming money into the repayment of something still owed", async () => {
@@ -137,6 +140,25 @@ describe("GriprTransactionForm refunds", () => {
     expect(screen.getByText("Money back for")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "refund", refund_of_id: 7, expected_back: null }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "refund", refund_of_id: 7, expected_back: null }), []);
+  });
+});
+
+describe("GriprTransactionForm attachments", () => {
+  it("hands the files picked on a new transaction to onSubmit, to upload once it's saved", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <GriprTransactionForm
+        accounts={accounts} categories={categories} initial={undefined} defaultAccountId={1}
+        onCancel={vi.fn()} onSubmit={onSubmit} isSubmitting={false}
+      />,
+    );
+    const receipt = new File(["%PDF-1.7"], "receipt.pdf", { type: "application/pdf" });
+
+    await userEvent.upload(screen.getByLabelText("Choose files to attach"), receipt);
+    await userEvent.type(screen.getByLabelText("Amount (EUR)"), "12");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ amount: "12" }), [receipt]);
   });
 });

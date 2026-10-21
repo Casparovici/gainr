@@ -5,16 +5,18 @@ import { useState } from "react";
 import { griprApi } from "../../api/griprClient";
 import type { GriprAccount, GriprCategory } from "../../api/griprTypes";
 import CollapsibleCard from "../../components/CollapsibleCard";
+import DepreciationCard from "../../components/gripr/DepreciationCard";
 import OwedToYou from "../../components/gripr/OwedToYou";
 import AccountDetailDialog from "../../components/gripr/AccountDetailDialog";
 import AccountForm, { type AccountFormInput } from "../../components/gripr/AccountForm";
 import BankLogo from "../../components/gripr/BankLogo";
 import GriprButton from "../../components/gripr/GriprButton";
-import GriprSettingsButton from "../../components/gripr/GriprSettingsButton";
 import MobileFab from "../../components/MobileFab";
 import { ModuleTopRow, PageTitle, secondaryButtonClass } from "../../components/ui/kit";
+import { QueryError } from "../../components/ui/QueryError";
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, resolveAccountColor } from "../../utils/accountColor";
 import { decimalInputToApi, formatEur, toNumber } from "../../utils/format";
+import { t } from "../../i18n";
 
 /** A balance reads in the ordinary text colour: money held isn't a gain, so only a negative
  * figure (an overdrawn pot, a loan) is marked, in red. */
@@ -43,7 +45,7 @@ function BalanceCell({ account, onSave }: { account: GriprAccount; onSave: (valu
           setEditing(true);
         }}
         className={`group/balance inline-flex items-center gap-1.5 text-sm font-medium tabular-nums hover:underline ${balanceClass(account.balance)}`}
-        title="Typed-in balance — click to update"
+        title={t("Typed-in balance — click to update")}
       >
         {formatEur(account.balance)}
         {/* Marks a balance that's typed in (a house, a car) rather than added up from
@@ -112,14 +114,14 @@ function AccountRow({
       }}
       role="button"
       tabIndex={0}
-      aria-label={`${account.name}: details and transactions`}
+      aria-label={t("{account}: details and transactions", { account: account.name })}
       className={`group relative flex min-h-[44px] cursor-pointer items-center gap-3 py-2 pl-4 pr-4 transition-colors ${
         isDragTarget ? "bg-primary-container" : "hover:bg-surface-container"
       }`}
     >
       {/* The account's own colour, as a thin strip rather than a border, dot and badge. */}
       <span aria-hidden className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full" style={{ backgroundColor: resolveAccountColor(account) }} />
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center" title="Drag to reorder">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center" title={t("Drag to reorder")}>
         {account.bank_logo_key ? (
           <BankLogo bankKey={account.bank_logo_key} size={24} />
         ) : (
@@ -128,10 +130,10 @@ function AccountRow({
       </span>
       <span className="min-w-0 flex-1 truncate text-sm text-on-surface">
         {account.name}
-        {heldInName && <span className="ml-1.5 text-xs text-on-surface-variant">in {heldInName}</span>}
+        {heldInName && <span className="ml-1.5 text-xs text-on-surface-variant">{t("in {account}", { account: heldInName })}</span>}
       </span>
       {account.is_archived && (
-        <span className="shrink-0 rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] text-on-surface-variant">archived</span>
+        <span className="shrink-0 rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] text-on-surface-variant">{t("archived")}</span>
       )}
       <span className="shrink-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <BalanceCell account={account} onSave={onSaveBalance} />
@@ -151,17 +153,17 @@ function NetWorthSummary({ accounts, owedToYou }: { accounts: GriprAccount[]; ow
   const ownedShare = owned + owed > 0 ? (owned / (owned + owed)) * 100 : 100;
 
   return (
-    <section className="rounded-2xl border border-outline-variant bg-surface px-4 py-3" aria-label="Net worth">
+    <section className="rounded-2xl border border-outline-variant bg-surface px-4 py-3" aria-label={t("Net worth")}>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-on-surface-variant">Net worth</span>
+        <span className="text-sm text-on-surface-variant">{t("Net worth")}</span>
         <span className={`text-xl font-semibold tabular-nums ${balanceClass(net)}`}>{formatEur(net)}</span>
       </div>
       <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-error-container" aria-hidden>
         <div className="h-full rounded-full bg-primary" style={{ width: `${ownedShare}%` }} />
       </div>
       <div className="mt-1.5 flex justify-between text-xs text-on-surface-variant">
-        <span>Owned {formatEur(owned)}</span>
-        <span>Owed {formatEur(owed)}</span>
+        <span>{t("Owned {amount}", { amount: formatEur(owned) })}</span>
+        <span>{t("Owed {amount}", { amount: formatEur(owed) })}</span>
       </div>
     </section>
   );
@@ -177,7 +179,7 @@ export default function GriprAccounts() {
 
   const receivablesQuery = useQuery({ queryKey: ["gripr-receivables"], queryFn: () => griprApi.listReceivables() });
   const accountsKey = ["gripr-accounts", showArchived] as const;
-  const { data: accounts, isLoading } = useQuery({
+  const { data: accounts, isLoading, isError, refetch } = useQuery({
     queryKey: accountsKey,
     queryFn: () => griprApi.listAccounts(showArchived),
   });
@@ -243,25 +245,22 @@ export default function GriprAccounts() {
     <div className="flex flex-col gap-4">
       <ModuleTopRow>
         <label className={`${secondaryButtonClass} cursor-pointer text-sm font-medium`}>
-          <input type="checkbox" className="h-4 w-4 accent-ui-brand" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Archived
-        </label>
+          <input type="checkbox" className="h-4 w-4 accent-ui-brand" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />{t("Archived")}</label>
         {/* On mobile this is the FAB's job instead (MobileFab, below). */}
-        <GriprButton onClick={() => setShowForm(true)} className="hidden sm:inline-flex">
-          New account
-        </GriprButton>
-        <GriprSettingsButton />
+        <GriprButton onClick={() => setShowForm(true)} className="hidden sm:inline-flex">{t("New account")}</GriprButton>
       </ModuleTopRow>
-      <PageTitle>Accounts</PageTitle>
+      <PageTitle>{t("Accounts")}</PageTitle>
 
       {isLoading ? (
-        <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">
-          Loading…
-        </div>
+        <div className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-on-surface-variant">{t("Loading…")}</div>
+      ) : isError ? (
+        <QueryError
+          className="rounded-2xl border border-outline-variant bg-surface px-4 py-6 text-center text-sm"
+          message={t("Couldn't load your accounts.")}
+          onRetry={() => refetch()}
+        />
       ) : groups.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-outline-variant px-4 py-6 text-center text-sm text-on-surface-variant">
-          No accounts yet — add your first one to start tracking balances.
-        </div>
+        <div className="rounded-2xl border border-dashed border-outline-variant px-4 py-6 text-center text-sm text-on-surface-variant">{t("No accounts yet — add your first one to start tracking balances.")}</div>
       ) : (
         <>
           {/* Two columns from lg up, flowing top-to-bottom, so ~20 accounts fit one screen;
@@ -275,7 +274,7 @@ export default function GriprAccounts() {
                   bodyClassName="border-t border-outline-variant"
                   title={
                     <span className="text-on-surface">
-                      {ACCOUNT_TYPE_LABELS[group.type]}
+                      {t(ACCOUNT_TYPE_LABELS[group.type])}
                       <span className="ml-1.5 font-normal text-on-surface-variant">{group.accounts.length}</span>
                     </span>
                   }
@@ -315,16 +314,15 @@ export default function GriprAccounts() {
             type="button"
             onClick={() => setShowForm(true)}
             className="hidden self-start text-sm font-medium text-primary hover:underline sm:inline"
-          >
-            + New account
-          </button>
+          >{t("+ New account")}</button>
           {/* At the bottom, as the sum of everything above it -- the way a statement reads. */}
           <NetWorthSummary accounts={accounts ?? []} owedToYou={toNumber(receivablesQuery.data?.total) ?? 0} />
           <OwedToYou />
+          <DepreciationCard />
         </>
       )}
 
-      <MobileFab label="New account" onClick={() => setShowForm(true)} />
+      <MobileFab label={t("New account")} onClick={() => setShowForm(true)} />
 
       {showForm && (
         <AccountForm

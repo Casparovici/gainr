@@ -22,6 +22,8 @@ class BrokerStatusOut(BaseModel):
     enabled: bool
     since: date_ | None
     portfolio_id: int | None
+    # The gripr account cashback is booked into; none = it stays part of the weekly deposit.
+    cashback_account_id: int | None = None
     last_synced_at: datetime | None
     last_error: str | None
     unmapped: list[BrokerUnmappedOut]
@@ -34,12 +36,15 @@ class BrokerSettingsUpdate(BaseModel):
     since: date_ | None = None
     # The portfolio its records book into; required the first time it's switched on.
     portfolio_id: int | None = None
+    # The gripr account for Trading 212's cashback. Left out keeps it; null clears it.
+    cashback_account_id: int | None = None
 
 
 class BrokerSyncResultOut(BaseModel):
     booked: int
     matched: int
     deposits: int
+    cashbacks: int = 0
     unmapped: list[BrokerUnmappedOut]
     problems: list[str]
 

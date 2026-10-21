@@ -1,0 +1,39 @@
+# Weekly dependency updates, grouped so a week's minor and patch bumps arrive as one PR per
+# ecosystem rather than a dozen. Majors come one at a time: those are the ones to read. Every PR
+# runs CI like any other, and is merged by hand.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: saturday
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: saturday
+    open-pull-requests-limit: 5
+    # React's four packages only work as one set (react-dom needs the same react, the types need
+    # both), so they arrive as a single PR whatever the size of the bump. Listed first: a
+    # dependency joins the first group it matches.
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # typescript-eslint supports TypeScript below 6.1 only, so TypeScript 7 (the native port)
+      # fails npm's peer check. Lift this once typescript-eslint supports it.
+      - dependency-name: typescript
+        versions: [">=7"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { gardnrApi } from "../../api/gardnrClient";
 import { MODULE_NAV } from "../../config/moduleNav";
+import { t } from "../../i18n";
 import KitBottomNav from "../ui/KitBottomNav";
 import { taskCounts } from "./ui";
 
@@ -15,7 +16,7 @@ export default function GardnrBottomNav() {
     <KitBottomNav
       items={MODULE_NAV.gardnr}
       label="gardnr"
-      badges={{ "/gardnr/vandaag": { count: overdue, label: `${overdue} te laat` } }}
+      badges={{ "/gardnr/vandaag": { count: overdue, label: t("{overdue} te laat", { overdue }) } }}
     />
   );
 }

@@ -16,6 +16,7 @@ vi.mock("../../api/griprClient", () => ({
     getBudgetSuggestions: vi.fn(),
     getSavingsGoals: vi.fn(),
     getSavingsGoalSuggestions: vi.fn(),
+    getSavingsRoom: vi.fn(),
     listAccounts: vi.fn(),
     listTransactions: vi.fn(),
     setBudget: vi.fn(),
@@ -80,6 +81,9 @@ describe("GriprBudget (Budget + category management)", () => {
     vi.mocked(griprApi.getBudgetSuggestions).mockResolvedValue([]);
     vi.mocked(griprApi.getSavingsGoals).mockResolvedValue([]);
     vi.mocked(griprApi.getSavingsGoalSuggestions).mockResolvedValue([]);
+    vi.mocked(griprApi.getSavingsRoom).mockResolvedValue({
+      income_budgeted: "3000", expense_budgeted: "1200", room: "1800", goals_budgeted: "500", unallocated: "1300",
+    });
     vi.mocked(griprApi.listAccounts).mockResolvedValue([account(9, "ING", "checking"), account(50, "DUO", "loan")]);
     vi.mocked(griprApi.listTransactions).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(griprApi.updateCategory).mockResolvedValue(food);
@@ -201,5 +205,64 @@ describe("GriprBudget (Budget + category management)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Salaris: transactions and settings" }));
     await screen.findByText("Category settings");
     expect(screen.queryByLabelText("Pays off a loan")).not.toBeInTheDocument();
+  });
+
+  describe("room to save", () => {
+    const openSavings = async () => {
+      renderBudget();
+      await userEvent.click(await screen.findByRole("button", { name: "Savings" }));
+      return screen.findByRole("region", { name: "Room to save" });
+    };
+
+    it("shows what the budget leaves for saving, and how much of it the goals plan", async () => {
+      vi.mocked(griprApi.getSavingsGoals).mockResolvedValue([
+        { account_id: 7, account_name: "Spaar", account_type: "savings", budgeted: "500", saved: "0" },
+      ]);
+      const card = await openSavings();
+      expect(card).toHaveTextContent("€ 1.800,00");
+      expect(card).toHaveTextContent("€ 3.000,00 income budgeted − € 1.200,00 expenses budgeted");
+      expect(card).toHaveTextContent("€ 500,00 planned in the goals below, € 1.300,00 not planned yet.");
+      expect(griprApi.getSavingsRoom).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    });
+
+    it("shows it before there is a savings account too", async () => {
+      const card = await openSavings();
+      expect(card).toHaveTextContent("€ 1.800,00");
+      expect(screen.getByText(/No savings or investment accounts yet/)).toBeInTheDocument();
+    });
+
+    it("says so when the expenses budgeted outgrow the income", async () => {
+      vi.mocked(griprApi.getSavingsRoom).mockResolvedValue({
+        income_budgeted: "1000", expense_budgeted: "1500", room: "-500", goals_budgeted: "0", unallocated: "-500",
+      });
+      const card = await openSavings();
+      expect(card).toHaveTextContent("€ -500,00");
+      expect(card).toHaveTextContent("more than the budgeted income, so there's nothing left to save");
+    });
+
+    it("says so when the goals plan more than the budget leaves", async () => {
+      vi.mocked(griprApi.getSavingsRoom).mockResolvedValue({
+        income_budgeted: "3000", expense_budgeted: "2500", room: "500", goals_budgeted: "800", unallocated: "-300",
+      });
+      const card = await openSavings();
+      expect(card).toHaveTextContent("The goals below plan € 300,00 more than the budget leaves.");
+    });
+
+    it("asks for a budget when there is none yet", async () => {
+      vi.mocked(griprApi.getSavingsRoom).mockResolvedValue({
+        income_budgeted: "0", expense_budgeted: "0", room: "0", goals_budgeted: "0", unallocated: "0",
+      });
+      const card = await openSavings();
+      expect(card).toHaveTextContent("Budget your income and expenses first");
+    });
+
+    it("says it couldn't work it out, and tries again", async () => {
+      vi.mocked(griprApi.getSavingsRoom).mockRejectedValueOnce(new Error("500"));
+      renderBudget();
+      await userEvent.click(await screen.findByRole("button", { name: "Savings" }));
+      expect(await screen.findByText("Couldn't work out how much room there is to save.")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /try again|retry/i }));
+      expect(await screen.findByRole("region", { name: "Room to save" })).toHaveTextContent("€ 1.800,00");
+    });
   });
 });

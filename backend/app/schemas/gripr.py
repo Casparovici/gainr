@@ -165,6 +165,29 @@ class GriprTransactionUpdate(BaseModel):
     expected_from: str | None = Field(default=None, max_length=80)
 
 
+class GriprTransactionBulk(BaseModel):
+    transaction_ids: list[int] = Field(min_length=1, max_length=500)
+    action: Literal["set_category", "set_account", "delete"]
+    category_id: int | None = None
+    account_id: int | None = None
+
+
+class GriprBulkOut(BaseModel):
+    updated: int
+    skipped: int  # rows the action couldn't apply to (a transfer can't take a category, ...)
+
+
+class GriprSimilarOut(BaseModel):
+    """Other uncategorised transactions from the same counterparty as a bank-synced one."""
+
+    counterparty: str | None
+    count: int
+
+
+class GriprAppliedOut(BaseModel):
+    updated: int
+
+
 class GriprRefundOfOut(BaseModel):
     """Just enough of the linked expense to say what a refund was for."""
 
@@ -191,6 +214,18 @@ class GriprTransactionOut(GriprTransactionBase):
     refund_of: GriprRefundOfOut | None = None
     # For an expense expecting money back: what's still to come (expected minus refunds so far).
     outstanding: Decimal = Decimal(0)
+    attachment_count: int = 0
+
+
+class GriprTransactionAttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    transaction_id: int
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
 
 
 class GriprReceivableOut(BaseModel):
@@ -221,6 +256,19 @@ class GriprTransactionPage(BaseModel):
 # -- recurring transactions ----------------------------------------------------------------
 
 
+class GriprDepreciationIn(BaseModel):
+    """How much of a transfer depreciates this asset account (docs/adr/0034)."""
+
+    account_id: int
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+
+
+class GriprDepreciationOut(BaseModel):
+    account_id: int
+    account_name: str | None = None
+    amount: Decimal
+
+
 class GriprRecurringBase(BaseModel):
     name: str
     type: GriprTransactionType
@@ -236,7 +284,8 @@ class GriprRecurringBase(BaseModel):
 
 
 class GriprRecurringCreate(GriprRecurringBase):
-    pass
+    # Only for a transfer: the assets it is the depreciation of, and by how much each.
+    depreciations: list[GriprDepreciationIn] = []
 
 
 class GriprRecurringUpdate(BaseModel):
@@ -252,10 +301,14 @@ class GriprRecurringUpdate(BaseModel):
     start_date: date_ | None = None
     end_date: date_ | None = None
     is_active: bool | None = None
+    # When given, replaces the rule's depreciations (an empty list clears them).
+    depreciations: list[GriprDepreciationIn] | None = None
 
 
 class GriprRecurringOut(GriprRecurringBase):
     model_config = ConfigDict(from_attributes=True)
+
+    depreciations: list[GriprDepreciationOut] = []
 
     id: int
     next_due_date: date_
@@ -327,6 +380,14 @@ class GriprSavingsGoalLineOut(BaseModel):
     saved: Decimal
 
 
+class GriprSavingsRoomOut(BaseModel):
+    income_budgeted: Decimal
+    expense_budgeted: Decimal
+    room: Decimal
+    goals_budgeted: Decimal
+    unallocated: Decimal
+
+
 class GriprSavingsGoalSuggestionOut(BaseModel):
     account_id: int
     previous_month: Decimal
@@ -347,6 +408,16 @@ class GriprCategoryAmountOut(BaseModel):
     category_id: int
     name: str
     amount: Decimal
+    average: Decimal | None = None  # over the 3 periods before; None with nothing to compare
+    change_pct: Decimal | None = None
+
+
+class GriprCategoryComparisonOut(BaseModel):
+    spent: Decimal
+    average: Decimal | None
+    change_pct: Decimal | None
+    periods: int
+    so_far: bool  # still running: compared with the same point in the earlier periods
 
 
 class GriprPutAsidePointOut(BaseModel):
@@ -361,12 +432,47 @@ class GriprCategoryTrendPointOut(BaseModel):
     amount: Decimal
 
 
+class GriprBalanceForecastPointOut(BaseModel):
+    date: date_
+    balance: Decimal
+    is_forecast: bool
+
+
+class GriprBalanceForecastOut(BaseModel):
+    points: list[GriprBalanceForecastPointOut]
+    expected_end: Decimal | None
+    lowest: GriprBalanceForecastPointOut | None
+    buffer: Decimal
+    safe_to_move: Decimal | None
+    weekday_pattern: bool
+
+
+class GriprSavingsHealthOut(BaseModel):
+    savings_rate_pct: Decimal | None
+    trailing_rate_pct: Decimal | None
+    liquid_savings: Decimal
+    average_monthly_expense: Decimal | None
+    runway_months: Decimal | None
+
+
+class GriprBudgetAttentionOut(BaseModel):
+    category_id: int
+    category_name: str
+    kind: str  # over_streak | under_streak
+    periods: int
+    budgeted: Decimal
+    average_spent: Decimal
+    suggested_budget: Decimal
+
+
 class GriprOverviewOut(BaseModel):
     net_worth: Decimal
     money_put_aside: list[GriprPutAsidePointOut]
     income_vs_expense: list[GriprMonthTotalOut]
     spending_by_category: list[GriprCategoryAmountOut]
     budget_status: list[GriprBudgetLineOut]
+    savings_health: GriprSavingsHealthOut
+    budget_attention: list[GriprBudgetAttentionOut]
 
 
 # -- bank sync (docs/adr/0029) ------------------------------------------------------------
@@ -492,3 +598,31 @@ class GriprNotificationOut(BaseModel):
     title: str
     detail: str | None
     link: str
+
+
+class GriprDepreciatingAssetOut(BaseModel):
+    """A manually valued asset losing value through a recurring transfer."""
+
+    account_id: int
+    name: str
+    value: Decimal
+    monthly: Decimal
+    # Whole months until its value reaches zero at this pace; null when it isn't depreciating.
+    months_left: int | None
+
+
+class GriprDepreciationFundOut(BaseModel):
+    """An account that receives the depreciation, and how it compares with what's depreciating."""
+
+    account_id: int
+    name: str
+    balance: Decimal
+    # Value of the assets depreciating into it, and its balance as a share of that.
+    assets_value: Decimal
+    monthly: Decimal
+    covers_pct: Decimal | None
+
+
+class GriprDepreciationOverviewOut(BaseModel):
+    assets: list[GriprDepreciatingAssetOut]
+    funds: list[GriprDepreciationFundOut]

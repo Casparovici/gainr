@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text, func
+from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
 
 from app.db import Base
 from app.models.listr_list import QUANTITY
@@ -29,7 +29,22 @@ class ListrRecipe(Base):
     # unique+index gives create_all the same named unique index the migration creates.
     mealie_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     mealie_updated_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The page a recipe came from, set on one planned from a briefr suggestion (the home chef,
+    # docs/adr/0054): planning the same suggestion again reuses this recipe, and the recipe can
+    # link back to its source. NULL for recipes written in listr or imported from Mealie.
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True, index=True)
+    # One photo per recipe, stored inline like gardnr's care-log photos so the whole-database
+    # backup covers it (see docs/adr/0043). Deferred: the recipe list never loads the bytes,
+    # it only needs `has_photo`, which reads the content type instead.
+    photo: Mapped[bytes | None] = deferred(mapped_column(LargeBinary, nullable=True))
+    photo_content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    @property
+    def has_photo(self) -> bool:
+        return self.photo_content_type is not None
+
+    # Notes about this recipe; deleting the recipe clears its links, not the notes (docs/adr/0050).
+    notr_notes = relationship("NotrNote", secondary="notr_note_recipes", back_populates="recipes")
     ingredients = relationship(
         "ListrRecipeIngredient", back_populates="recipe", cascade="all, delete-orphan",
         order_by="ListrRecipeIngredient.sort_order",

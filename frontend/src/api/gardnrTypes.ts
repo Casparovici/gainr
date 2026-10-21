@@ -1,12 +1,14 @@
+import { msg } from "../i18n";
+
 export type GardenPlantType = "plant" | "tree" | "shrub" | "other";
 
 export const GARDEN_PLANT_TYPES: GardenPlantType[] = ["plant", "tree", "shrub", "other"];
 
 export const GARDEN_PLANT_TYPE_LABELS: Record<GardenPlantType, string> = {
-  plant: "Plant",
-  tree: "Boom",
-  shrub: "Struik",
-  other: "Overig",
+  plant: msg("Plant"),
+  tree: msg("Boom"),
+  shrub: msg("Struik"),
+  other: msg("Overig"),
 };
 
 export type GardenActionType = "water" | "prune" | "trim" | "fertilize" | "harvest" | "pest_control" | "other";
@@ -14,13 +16,13 @@ export type GardenActionType = "water" | "prune" | "trim" | "fertilize" | "harve
 export const GARDEN_ACTION_TYPES: GardenActionType[] = ["water", "prune", "trim", "fertilize", "harvest", "pest_control", "other"];
 
 export const GARDEN_ACTION_LABELS: Record<GardenActionType, string> = {
-  water: "Water geven",
-  prune: "Snoeien",
-  trim: "Bijsnoeien",
-  fertilize: "Bemesten",
-  harvest: "Oogsten",
-  pest_control: "Ongediertebestrijding",
-  other: "Overig",
+  water: msg("Water geven"),
+  prune: msg("Snoeien"),
+  trim: msg("Bijsnoeien"),
+  fertilize: msg("Bemesten"),
+  harvest: msg("Oogsten"),
+  pest_control: msg("Ongediertebestrijding"),
+  other: msg("Overig"),
 };
 
 export type GardenScheduleFrequency = "daily" | "weekly" | "monthly" | "yearly";
@@ -28,10 +30,10 @@ export type GardenScheduleFrequency = "daily" | "weekly" | "monthly" | "yearly";
 export const GARDEN_SCHEDULE_FREQUENCIES: GardenScheduleFrequency[] = ["daily", "weekly", "monthly", "yearly"];
 
 export const GARDEN_FREQUENCY_UNIT_LABELS: Record<GardenScheduleFrequency, string> = {
-  daily: "dag(en)",
-  weekly: "week(en)",
-  monthly: "maand(en)",
-  yearly: "jaar/jaren",
+  daily: msg("dag(en)"),
+  weekly: msg("week(en)"),
+  monthly: msg("maand(en)"),
+  yearly: msg("jaar/jaren"),
 };
 
 export type GardenPlantStatus = "thriving" | "struggling" | "dead";
@@ -39,9 +41,9 @@ export type GardenPlantStatus = "thriving" | "struggling" | "dead";
 export const GARDEN_PLANT_STATUSES: GardenPlantStatus[] = ["thriving", "struggling", "dead"];
 
 export const GARDEN_PLANT_STATUS_LABELS: Record<GardenPlantStatus, string> = {
-  thriving: "Gezond",
-  struggling: "Worstelt",
-  dead: "Dood",
+  thriving: msg("Gezond"),
+  struggling: msg("Worstelt"),
+  dead: msg("Dood"),
 };
 
 // emerald/amber/red, the same traffic-light meaning listr's inventory status dots use.
@@ -54,8 +56,8 @@ export const GARDEN_PLANT_STATUS_DOT_CLASS: Record<GardenPlantStatus, string> = 
 export type GardenZoneShape = "rect" | "circle";
 
 export const GARDEN_ZONE_SHAPE_LABELS: Record<GardenZoneShape, string> = {
-  rect: "Rechthoek",
-  circle: "Cirkel",
+  rect: msg("Rechthoek"),
+  circle: msg("Cirkel"),
 };
 
 export type GardenPlantIcon = "sprout" | "tree_deciduous" | "tree_pine" | "trees" | "leaf" | "leafy_green" | "flower" | "flower2";
@@ -72,14 +74,14 @@ export const GARDEN_PLANT_ICONS: GardenPlantIcon[] = [
 ];
 
 export const GARDEN_PLANT_ICON_LABELS: Record<GardenPlantIcon, string> = {
-  sprout: "Kiem",
-  tree_deciduous: "Loofboom",
-  tree_pine: "Naaldboom",
-  trees: "Bomen",
-  leaf: "Blad",
-  leafy_green: "Groen blad",
-  flower: "Bloem",
-  flower2: "Bloem (rond)",
+  sprout: msg("Kiem"),
+  tree_deciduous: msg("Loofboom"),
+  tree_pine: msg("Naaldboom"),
+  trees: msg("Bomen"),
+  leaf: msg("Blad"),
+  leafy_green: msg("Groen blad"),
+  flower: msg("Bloem"),
+  flower2: msg("Bloem (rond)"),
 };
 
 export interface GardenArea {

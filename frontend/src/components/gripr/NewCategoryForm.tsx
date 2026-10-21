@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { GriprCategory, GriprCategoryKind } from "../../api/griprTypes";
 import ModalOverlay from "../ModalOverlay";
+import { t } from "../../i18n";
 
 const inputClass =
   "rounded-md border border-outline px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
@@ -26,7 +27,7 @@ export default function NewCategoryForm({
 
   return (
     <ModalOverlay onClose={onCancel} cardClassName="w-full max-w-sm rounded-[28px] bg-surface p-6 shadow-xl">
-        <h2 className="text-lg font-medium text-on-surface">New {kind} category</h2>
+        <h2 className="text-lg font-medium text-on-surface">{kind === "income" ? t("New income category") : t("New expense category")}</h2>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -35,13 +36,13 @@ export default function NewCategoryForm({
           className="mt-4 flex flex-col gap-3"
         >
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">Name</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t("Name")}</span>
             <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">Parent (optional)</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t("Parent (optional)")}</span>
             <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputClass}>
-              <option value="">— top-level category —</option>
+              <option value="">{t("— top-level category —")}</option>
               {parents.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -54,15 +55,13 @@ export default function NewCategoryForm({
               type="button"
               onClick={onCancel}
               className="rounded-full border border-outline px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-            >
-              Cancel
-            </button>
+            >{t("Cancel")}</button>
             <button
               type="submit"
               disabled={isSubmitting}
               className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:opacity-90 disabled:opacity-50"
             >
-              {isSubmitting ? "Saving…" : "Create"}
+              {isSubmitting ? t("Saving…") : t("Create")}
             </button>
           </div>
         </form>

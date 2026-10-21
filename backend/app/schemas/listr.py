@@ -30,6 +30,36 @@ class ListrCategoryOut(BaseModel):
     is_archived: bool
 
 
+# -- stores (supermarkets, and the order their aisles come in) -------------------------------
+
+
+class ListrStoreCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    # Start from another store's order (two shops of one chain share a layout).
+    copy_order_from_id: int | None = None
+
+
+class ListrStoreUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_archived: bool | None = None
+
+
+class ListrStoreOrder(BaseModel):
+    category_ids: list[int]
+
+
+class ListrStoreOut(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    is_archived: bool
+    # The aisles the store has been arranged, first to last.
+    category_ids: list[int] = []
+    # Every category in the order a list for this store shows them: those aisles, then the rest in
+    # the global order. What an editor lists, so it doesn't repeat the rule.
+    category_order: list[int] = []
+
+
 # -- items (the catalog) ---------------------------------------------------------------------
 
 
@@ -116,6 +146,8 @@ class ListrListCreate(BaseModel):
 class ListrListUpdate(BaseModel):
     name: str | None = None
     is_archived: bool | None = None
+    # The supermarket whose aisle order the list follows; sent as null, back to the global order.
+    store_id: int | None = None
 
 
 class ListrListDuplicate(BaseModel):
@@ -164,10 +196,13 @@ class ListrListOut(BaseModel):
     updated_at: datetime
     item_count: int = 0
     checked_count: int = 0
+    store_id: int | None = None
 
 
 class ListrListDetailOut(ListrListOut):
     items: list[ListrListItemOut] = []
+    # Every category id in the order this list shows its groups: the store's aisles, then the rest.
+    category_order: list[int] = []
 
 
 # -- add-ingredients-to-list ------------------------------------------------------------------
@@ -258,8 +293,11 @@ class ListrRecipeOut(BaseModel):
     updated_at: datetime
     ingredients: list[ListrRecipeIngredientOut] = []
     categories: list[ListrRecipeCategoryOut] = []
+    has_photo: bool = False
     # Set when the recipe was imported from Mealie -- a re-import overwrites edits made here.
     mealie_id: str | None = None
+    # The page a recipe planned from a briefr suggestion came from (docs/adr/0054).
+    source_url: str | None = None
 
 
 # -- weekplanner / meal history -----------------------------------------------------------------
@@ -267,8 +305,13 @@ class ListrRecipeOut(BaseModel):
 
 class ListrMealPlanInput(BaseModel):
     recipe_id: int | None = None
+    leftover_id: int | None = None
     is_cooked: bool = False
     notes: str | None = None
+
+
+class ListrMealPlanMoveIn(BaseModel):
+    to: date_
 
 
 class ListrMealPlanOut(BaseModel):
@@ -277,8 +320,49 @@ class ListrMealPlanOut(BaseModel):
     date: date_
     recipe_id: int | None
     recipe_title: str | None = None
+    leftover_id: int | None = None
+    leftover_name: str | None = None
     is_cooked: bool
     notes: str | None
+
+
+# -- leftovers (see docs/adr/0036-listr-leftovers.md) -------------------------------------------
+
+ListrLeftoverLocation = Literal["freezer", "fridge"]
+
+
+class ListrLeftoverCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    recipe_id: int | None = None
+    meals: int = Field(default=1, ge=1)
+    servings_per_meal: int | None = Field(default=None, ge=1)
+    location: ListrLeftoverLocation = "freezer"
+    stored_on: date_ | None = None  # defaults to today
+    use_by: date_ | None = None  # defaults from the location: 3 days fridge, 90 days freezer
+
+
+class ListrLeftoverUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    servings_per_meal: int | None = Field(default=None, ge=1)
+    location: ListrLeftoverLocation | None = None
+    use_by: date_ | None = None
+
+
+class ListrLeftoverMealsDeltaIn(BaseModel):
+    delta: int
+
+
+class ListrLeftoverOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    recipe_id: int | None
+    meals: int
+    servings_per_meal: int | None
+    location: str
+    stored_on: date_
+    use_by: date_
 
 
 class ListrPopularRecipeOut(BaseModel):

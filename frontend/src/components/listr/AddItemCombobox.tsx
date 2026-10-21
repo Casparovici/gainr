@@ -3,16 +3,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { listrApi } from "../../api/listrClient";
 import type { ListrItem } from "../../api/listrTypes";
-
-const inputClass =
-  "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
+import { QueryError } from "../ui/QueryError";
+import { inputClass, primaryButtonClass, secondaryButtonClass } from "../ui/kit";
+import { t } from "../../i18n";
 
 /** Search-as-you-type over the grocery catalog, with an inline "+ Nieuw product" path when
  * what you typed isn't in the catalog yet -- the one place "add new products myself if they
  * don't exist" actually happens, reused from both a list and a recipe. */
 export default function AddItemCombobox({
   onSelect,
-  placeholder = "Product zoeken of toevoegen…",
+  placeholder = t("Product zoeken of toevoegen…"),
   initialQuery = "",
 }: {
   onSelect: (item: ListrItem) => void;
@@ -29,7 +29,10 @@ export default function AddItemCombobox({
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: items } = useQuery({ queryKey: ["listr-items"], queryFn: () => listrApi.listItems() });
+  const { data: items, isError: itemsError, refetch: refetchItems } = useQuery({
+    queryKey: ["listr-items"],
+    queryFn: () => listrApi.listItems(),
+  });
   const { data: categories } = useQuery({
     queryKey: ["listr-categories"],
     queryFn: () => listrApi.listCategories(),
@@ -120,13 +123,21 @@ export default function AddItemCombobox({
         }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className={`${inputClass} w-full`}
+        className={inputClass}
       />
 
       {open && !creating && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-          {filtered.length === 0 && !trimmed && (
-            <div className="px-2 py-1.5 text-sm text-slate-400">Typ om te zoeken…</div>
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-ui-line bg-ui-surface p-1 shadow-lg">
+          {itemsError && (
+            <QueryError
+              className="px-2 py-1.5 text-sm"
+              message={t("Producten laden mislukt, dus bestaande producten worden niet gevonden.")}
+              onRetry={() => refetchItems()}
+              retryLabel={t("Opnieuw")}
+            />
+          )}
+          {filtered.length === 0 && !trimmed && !itemsError && (
+            <div className="px-2 py-1.5 text-sm text-ui-muted">{t("Typ om te zoeken…")}</div>
           )}
           {filtered.map((item, i) => (
             <button
@@ -137,12 +148,12 @@ export default function AddItemCombobox({
                 reset();
               }}
               onMouseEnter={() => setHighlighted(i)}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${
-                i === highlighted ? "bg-slate-100" : "hover:bg-slate-50"
+              className={`flex w-full items-center justify-between min-h-[44px] rounded-lg px-2 py-1.5 text-left text-[15px] ${
+                i === highlighted ? "bg-ui-tile" : "hover:bg-ui-tile"
               }`}
             >
-              <span className="text-slate-900">{item.name}</span>
-              <span className="text-xs text-slate-400">{item.category_name}</span>
+              <span className="text-ui-ink">{item.name}</span>
+              <span className="text-xs text-ui-muted">{item.category_name}</span>
             </button>
           ))}
           {showCreateOption && (
@@ -150,21 +161,21 @@ export default function AddItemCombobox({
               type="button"
               onClick={startCreating}
               onMouseEnter={() => setHighlighted(filtered.length)}
-              className={`mt-1 w-full rounded-md border-t border-slate-100 px-2 py-1.5 text-left text-sm text-blue-700 ${
-                filtered.length === highlighted ? "bg-slate-50" : "hover:bg-slate-50"
+              className={`mt-1 min-h-[44px] w-full rounded-lg border-t border-ui-line px-2 py-1.5 text-left text-[15px] font-semibold text-ui-brand-strong ${
+                filtered.length === highlighted ? "bg-ui-tile" : "hover:bg-ui-tile"
               }`}
             >
-              + "{trimmed}" toevoegen aan producten
+              {t("+ \"{name}\" toevoegen aan producten", { name: trimmed })}
             </button>
           )}
         </div>
       )}
 
       {creating && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-          <div className="text-sm font-medium text-slate-900">Nieuw product: "{trimmed}"</div>
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-xl border border-ui-line bg-ui-surface p-3 shadow-lg">
+          <div className="text-sm font-semibold text-ui-ink">{t("Nieuw product: \"{trimmed}\"", { trimmed: trimmed })}</div>
           <label className="mt-2 flex flex-col gap-1 text-xs">
-            <span className="font-medium uppercase tracking-wide text-slate-500">Categorie</span>
+            <span className="font-semibold uppercase tracking-wide text-ui-muted">{t("Categorie")}</span>
             <select
               value={newCategoryId}
               onChange={(e) => setNewCategoryId(e.target.value)}
@@ -178,24 +189,22 @@ export default function AddItemCombobox({
             </select>
           </label>
           <label className="mt-2 flex flex-col gap-1 text-xs">
-            <span className="font-medium uppercase tracking-wide text-slate-500">Eenheid</span>
-            <input value={newUnit} onChange={(e) => setNewUnit(e.target.value)} className={inputClass} placeholder="stuks, kg, liter…" />
+            <span className="font-semibold uppercase tracking-wide text-ui-muted">{t("Eenheid")}</span>
+            <input value={newUnit} onChange={(e) => setNewUnit(e.target.value)} className={inputClass} placeholder={t("stuks, kg, liter…")} />
           </label>
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCreating(false)}
-              className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Terug
-            </button>
+              className={secondaryButtonClass}
+            >{t("Terug")}</button>
             <button
               type="button"
               disabled={!newCategoryId || !newUnit.trim() || createMutation.isPending}
               onClick={() => createMutation.mutate()}
-              className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+              className={primaryButtonClass}
             >
-              {createMutation.isPending ? "Bezig…" : "Toevoegen"}
+              {createMutation.isPending ? t("Bezig…") : t("Toevoegen")}
             </button>
           </div>
         </div>

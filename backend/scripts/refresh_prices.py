@@ -18,10 +18,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import SessionLocal  # noqa: E402
-from app.repositories import asset_repo, portfolio_repo, transaction_repo  # noqa: E402
 from app.services import gripr_portfolio_link_service  # noqa: E402
 from app.services.benchmark_service import BENCHMARKS, benchmark_service  # noqa: E402
-from app.services.position_service import position_service  # noqa: E402
+from app.services.position_service import held_assets  # noqa: E402
 from app.services.price_service import price_service  # noqa: E402
 
 
@@ -31,14 +30,8 @@ def main() -> None:
         # Every portfolio's held assets, unioned -- prices/the price cache are shared across
         # portfolios (see docs/adr/0019), so this refreshes once per asset regardless of how
         # many portfolios hold it, not once per portfolio.
-        assets_by_id = {}
-        for portfolio in portfolio_repo.list_portfolios(db, include_archived=True):
-            transactions = transaction_repo.list_all_transactions(db, portfolio.id)
-            active, _closed = position_service.get_positions_from(transactions)
-            assets_by_id.update(asset_repo.get_assets_by_ids(db, [p.asset_id for p in active]))
-
         refreshed = []
-        for asset in assets_by_id.values():
+        for asset in held_assets(db):
             price_service.get_daily_price(db, asset)
             refreshed.append(asset.ticker)
 

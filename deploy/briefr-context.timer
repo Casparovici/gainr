@@ -1,0 +1,11 @@
+[Unit]
+Description=Export briefr's agent context nightly, before the agents run
+
+[Timer]
+# Local time, like the agents' own schedules: they start from 02:00 Amsterdam time.
+OnCalendar=*-*-* 01:30:00 Europe/Amsterdam
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
